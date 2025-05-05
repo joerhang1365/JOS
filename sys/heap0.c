@@ -43,7 +43,8 @@
 
 // Header that preceeds each allocated block. Must be a multiple of HEAP_ALIGN.
 
-struct heap_alloc_header {
+struct heap_alloc_header
+{
     uint32_t magic;     // HEAP_ALLOC_MAGIC
     uint32_t size;      // size of memory block being allocated
     uint32_t size_inv;  // bitwise not of the size
@@ -51,7 +52,8 @@ struct heap_alloc_header {
 };
 
 
-struct heap_free_record {
+struct heap_free_record
+{
     uint32_t magic; // HEAP_FREE_MAGIC
     uint32_t ra32;  // caller return address
 };
@@ -84,7 +86,8 @@ char heap_initialized = 0;
 // EXPORTED FUNCTION DEFINITIONS
 //
 
-void heap_init(void * start, void * end) {
+void heap_init(void * start, void * end)
+{
     trace("%s(%p,%p)", __func__, start, end);
 
     assert (4 <= HEAP_ALIGN);
@@ -101,22 +104,26 @@ void heap_init(void * start, void * end) {
     heap_initialized = 1;
 }
 
-void * kmalloc(size_t size) {
+void * kmalloc(size_t size)
+{
     return heap_malloc_actual(size, __builtin_return_address(0));
 }
 
-void * kcalloc(size_t nelts, size_t eltsz) {
+void * kcalloc(size_t nelts, size_t eltsz)
+{
     return heap_calloc_actual(nelts, eltsz, __builtin_return_address(0));
 }
 
-void kfree(void * ptr) {
+void kfree(void * ptr)
+{
     return heap_free_actual(ptr, __builtin_return_address(0));
 }
 
 // INTERNAL FUNCTION DEFINITIONS
 //
 
-void * heap_malloc_actual(size_t size, void * ra) {
+void * heap_malloc_actual(size_t size, void * ra)
+{
     struct heap_alloc_header * hdr;
     size_t leftover;
     void * newpage;
@@ -136,11 +143,14 @@ void * heap_malloc_actual(size_t size, void * ra) {
     // implement heap growth (HAVE_MEMORY is defined), ask for another page from
     // the page allocator.
 
-    if (size + sizeof(struct heap_alloc_header) <= heap_end - heap_low) {
+    if (size + sizeof(struct heap_alloc_header) <= heap_end - heap_low)
+    {
         // have enough in current pool
         ptr = heap_end - size;
         heap_end = (struct heap_alloc_header*)ptr - 1;
-    } else {
+    }
+    else
+    {
         // need to get another page
         if (PAGE_SIZE - sizeof(struct heap_alloc_header) < size)
             panic(NULL);
@@ -153,7 +163,8 @@ void * heap_malloc_actual(size_t size, void * ra) {
         ptr = newpage + PAGE_SIZE - size;
         leftover = PAGE_SIZE - size - sizeof(struct heap_alloc_header);
 
-        if (heap_end - heap_low < leftover) {
+        if (heap_end - heap_low < leftover)
+        {
             heap_end = ptr - sizeof(struct heap_alloc_header);
             heap_low = newpage;
         }
@@ -169,7 +180,8 @@ void * heap_malloc_actual(size_t size, void * ra) {
     return ptr;
 }
 
-void * heap_calloc_actual(size_t nelts, size_t eltsz, void * ra) {
+void * heap_calloc_actual(size_t nelts, size_t eltsz, void * ra)
+{
     size_t size;
     void * ptr;
 
@@ -183,7 +195,8 @@ void * heap_calloc_actual(size_t nelts, size_t eltsz, void * ra) {
     return ptr;
 }
 
-void heap_free_actual(void * ptr, void * ra) {
+void heap_free_actual(void * ptr, void * ra)
+{
     struct heap_alloc_header * hdr;
     struct heap_free_record * rec;
 
@@ -197,7 +210,8 @@ void heap_free_actual(void * ptr, void * ra) {
 
     // Check integrity
 
-    if (hdr->size != ~hdr->size_inv) {
+    if (hdr->size != ~hdr->size_inv)
+    {
         if (hdr->magic != HEAP_ALLOC_MAGIC)
             panic(NULL);
         else if (hdr->size_inv == 0 && rec->magic == HEAP_FREE_MAGIC)

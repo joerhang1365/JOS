@@ -41,7 +41,8 @@ extern void handle_syscall(struct trap_frame * tfr); // syscall.c
 // INTERNAL GLOBAL VARIABLES
 //
 
-static const char * const excp_names[] = {
+static const char * const excp_names[] =
+{
     [RISCV_SCAUSE_INSTR_ADDR_MISALIGNED] = "Misaligned instruction address",
     [RISCV_SCAUSE_INSTR_ACCESS_FAULT] = "Instruction access fault",
     [RISCV_SCAUSE_ILLEGAL_INSTR] = "Illegal instruction",
@@ -60,15 +61,21 @@ static const char * const excp_names[] = {
 // EXPORTED FUNCTION DEFINITIONS
 //
 
-void handle_smode_exception(unsigned int cause, struct trap_frame * tfr) {
+void handle_smode_exception(unsigned int cause, struct trap_frame * tfr)
+{
     const char * name = NULL;
     char msgbuf[80];
+    int result;
 
-    if (0 <= cause && cause < sizeof(excp_names)/sizeof(excp_names[0]))
+    if (0 <= cause && cause < sizeof(excp_names) / sizeof(excp_names[0]))
+    {
         name = excp_names[cause];
+    }
 
-    if (name != NULL) {
-        switch (cause) {
+    if (name != NULL)
+    {
+        switch (cause)
+        {
         case RISCV_SCAUSE_LOAD_PAGE_FAULT:
         case RISCV_SCAUSE_STORE_PAGE_FAULT:
         case RISCV_SCAUSE_INSTR_PAGE_FAULT:
@@ -84,17 +91,24 @@ void handle_smode_exception(unsigned int cause, struct trap_frame * tfr) {
             break;
         case RISCV_SCAUSE_ECALL_FROM_SMODE:
             handle_syscall(tfr);
-			return;
+            result = 1;
             break;
         default:
             snprintf(msgbuf, sizeof(msgbuf),
                 "%s at %p in S mode",
                 name, (void*)tfr->sepc);
         }
-    } else {
+    }
+    else
+    {
         snprintf(msgbuf, sizeof(msgbuf),
             "Exception %d at %p in S mode",
             cause, (void*)tfr->sepc);
+    }
+
+    if (result == 1)
+    {
+        return;
     }
 
     panic(msgbuf);
@@ -108,11 +122,15 @@ void handle_umode_exception(unsigned int cause, struct trap_frame * tfr) {
 
     trace("%s(cause=%d)", __func__, cause);
 
-     if (0 <= cause && cause < sizeof(excp_names)/sizeof(excp_names[0]))
+    if (0 <= cause && cause < sizeof(excp_names) / sizeof(excp_names[0]))
+    {
         name = excp_names[cause];
+    }
 
-    if (name != NULL) {
-        switch (cause) {
+    if (name != NULL)
+    {
+        switch (cause)
+        {
         case RISCV_SCAUSE_LOAD_PAGE_FAULT:
             result = handle_umode_page_fault(tfr, vma);
             break;
@@ -132,21 +150,25 @@ void handle_umode_exception(unsigned int cause, struct trap_frame * tfr) {
             break;
         case RISCV_SCAUSE_ECALL_FROM_UMODE:
             handle_syscall(tfr);
-			return;
+            result = 1;
             break;
         default:
             snprintf(msgbuf, sizeof(msgbuf),
                 "%s at %p in U mode",
                 name, (void*)tfr->sepc);
         }
-    } else {
+    }
+    else
+    {
         snprintf(msgbuf, sizeof(msgbuf),
             "Exception %d at %p in U mode",
             cause, (void*)tfr->sepc);
     }
 
     if (result == 1)
+    {
         return;
+    }
 
     panic(msgbuf);
 }

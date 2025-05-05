@@ -43,7 +43,8 @@
 
 typedef uint32_t virtio_featset_t[VIRTIO_FEATLEN];
 
-struct virtio_mmio_regs {
+struct virtio_mmio_regs
+{
     uint32_t magic_value;           // R  Magic value
     uint32_t version;               // R  Device version number
     uint32_t device_id;             // R  Virtio Subsystem Device ID
@@ -86,24 +87,32 @@ struct virtio_mmio_regs {
     uint32_t queue_reset;           // RW Virtual queue reset bit
     uint32_t _reserved_0xc4[14];
 
-    union {
+    union
+    {
         // Block device config
-        struct {
+        struct
+        {
             uint64_t capacity;
             uint32_t size_max;
             uint32_t seg_max;
-            struct {
+            struct
+            {
                 uint16_t cylinders;
                 uint8_t heads;
                 uint8_t sectors;
-            } geometry;
+            }
+            geometry;
+
             uint32_t blk_size;
-            struct {
+            struct
+            {
                 uint8_t physical_block_exp;
                 uint8_t alignment_offset;
                 uint16_t min_io_size;
                 uint32_t opt_io_size;
-            } topology;
+            }
+            topology;
+
             uint8_t writeback;
             char unused0;
             uint16_t num_queues;
@@ -117,19 +126,24 @@ struct virtio_mmio_regs {
             uint32_t max_secure_erase_sectors;
             uint32_t max_secure_erase_seg;
             uint32_t secure_erase_sector_alignment;
-        } blk;
+        }
+        blk;
+
         uint8_t raw[0];
-    } config;
+    }
+    config;
 };
 
-struct virtq_desc {
+struct virtq_desc
+{
     uint64_t addr; // Address (guest-physical).
     uint32_t len; // Length
     uint16_t flags; // The flags as indicated above.
     int16_t next; // We chain unused descriptors via this, too
 };
 
-struct virtq_avail {
+struct virtq_avail
+{
     uint16_t flags;
     uint16_t idx;
     uint16_t ring[];
@@ -142,12 +156,14 @@ struct virtq_avail {
 #define VIRTQ_AVAIL_SIZE(n) \
     (sizeof(struct virtq_avail)+(n)*sizeof(uint16_t))
 
-struct virtq_used_elem {
+struct virtq_used_elem
+{
     uint32_t id; // Index of start of used descriptor chain
     uint32_t len; // Total length of the descriptor chain which was written to
 };
 
-struct virtq_used {
+struct virtq_used
+{
     uint16_t flags;
     uint16_t idx;
     struct virtq_used_elem ring[];
@@ -277,18 +293,21 @@ static inline void virtio_reset_virtq (
     regs->queue_reset = 1;
 }
 
-static inline void virtio_featset_init(virtio_featset_t fts) {
+static inline void virtio_featset_init(virtio_featset_t fts)
+{
     uint_fast8_t i;
 
     for (i = 0; i < VIRTIO_FEATLEN; i++)
         fts[i] = 0;
 }
 
-static inline void virtio_featset_add(virtio_featset_t fts, uint_fast16_t k) {
+static inline void virtio_featset_add(virtio_featset_t fts, uint_fast16_t k)
+{
     fts[k/32] |= UINT32_C(1) << (k%32);
 }
 
-static inline int virtio_featset_test(virtio_featset_t fts, uint_fast16_t k) {
+static inline int virtio_featset_test(virtio_featset_t fts, uint_fast16_t k)
+{
     return ((fts[k/32] >> (k%32)) & 1);
 }
 

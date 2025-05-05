@@ -35,7 +35,8 @@ void test_trek_wrapper();
 
 extern char _kimg_end[];
 
-void main(void) {
+void main(void)
+{
     struct io * blkio;
     int result;
     int i;
@@ -55,26 +56,28 @@ void main(void) {
     for (i = 0; i < NUM_UARTS; i++)
         uart_attach((void *)UART_MMIO_BASE(i), UART0_INTR_SRCNO+i);
 
-    for (i = 0; i < 8; i++) {
+    for (i = 0; i < 8; i++)
         virtio_attach ((void *)VIRTIO0_MMIO_BASE + i*VIRTIO_MMIO_STEP, VIRTIO0_INTR_SRCNO + i);
-    }
 
     enable_interrupts();
 
     result = open_device("vioblk", 0, &blkio);
-    if (result < 0) {
+    if (result < 0)
+    {
         kprintf("Error: %d\n", result);
         panic("Failed to open vioblk\n");
     }
 
     result = fsmount(blkio);
-    if (result < 0) {
+    if (result < 0)
+    {
         kprintf("Error: %d\n", result);
         panic("Failed to mount filesystem\n");
     }
 
     result = open_device("uart", 1, &current_process()->iotab[2]);
-    if (result < 0) {
+    if (result < 0)
+    {
         kprintf("Error: %d\n", result);
         panic("Failed to open UART\n");
     }
@@ -175,7 +178,8 @@ void test_rogue()
     process_exec(rogueio, argc, argv);
 }
 
-void test_shit_shell(){
+void test_shit_shell()
+{
     struct io * shellio;
     char * argv[3];
     int argc;
@@ -193,7 +197,8 @@ void test_shit_shell(){
     process_exec(shellio, argc, argv);
 }
 
-void test_shell() {
+void test_shell()
+{
     struct io * shellio;
     char * argv[3];
     int argc;
@@ -212,7 +217,8 @@ void test_shell() {
 }
 
 
-void test_doom() {
+void test_doom()
+{
     struct io * doomio;
     char * argv[3];
     int argc;
@@ -231,7 +237,8 @@ void test_doom() {
     process_exec(doomio, argc, argv);
 }
 
-void test_skyline() {
+void test_skyline()
+{
     struct io * skylineio;
     char * argv[3];
     int argc;
@@ -250,7 +257,8 @@ void test_skyline() {
     process_exec(skylineio, argc, argv);
 }
 
-void test_fib() {
+void test_fib()
+{
     struct io * io;
     char * argv[3];
     int argc;
@@ -268,7 +276,8 @@ void test_fib() {
     process_exec(io, argc, argv);
 }
 
-void test_trekfib() {
+void test_trekfib()
+{
     struct io * io;
     char * argv[3];
     int argc;
@@ -286,7 +295,8 @@ void test_trekfib() {
     process_exec(io, argc, argv);
 }
 
-void test_trek_wrapper() {
+void test_trek_wrapper()
+{
     struct io * io;
     char * argv[3];
     int argc;
@@ -303,5 +313,3 @@ void test_trek_wrapper() {
 
     process_exec(io, argc, argv);
 }
-
-

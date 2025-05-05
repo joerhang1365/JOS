@@ -20,7 +20,7 @@ extern void __attribute__ ((noreturn)) assert_failed (
     if (!(c)) { \
         assert_failed(__FILE__, __LINE__, #c); \
     } \
-} while (0)
+} while (0) \
 
 #define panic(msg) do { \
     panic_actual(__FILE__, __LINE__, (msg)); \

@@ -30,7 +30,8 @@ char intrmgr_initialized = 0;
 // INTERNAL GLOBAL VARIABLE DEFINITIONS
 //
 
-static struct {
+static struct
+{
     void (*isr)(int,void*); // isr function
     void * isr_aux; // isr auxilary var
 } isrtab[NIRQ];
@@ -44,7 +45,8 @@ static void handle_extern_interrupt(void);
 // EXPORTED FUNCTION DEFINITIONS
 //
 
-void intrmgr_init(void) {
+void intrmgr_init(void)
+{
     trace("%s()", __func__);
 
     disable_interrupts(); // should not be enabled yet
@@ -70,17 +72,20 @@ void enable_intr_source (
     plic_enable_source(srcno, prio);
 }
 
-void disable_intr_source(int srcno) {
+void disable_intr_source(int srcno)
+{
     plic_disable_source(srcno);
     isrtab[srcno].isr = NULL;
     isrtab[srcno].isr_aux = NULL;
 }
 
-void handle_smode_interrupt(unsigned int cause) {
+void handle_smode_interrupt(unsigned int cause)
+{
     handle_interrupt(cause);
 }
 
-void handle_umode_interrupt(unsigned int cause) {
+void handle_umode_interrupt(unsigned int cause)
+{
     handle_interrupt(cause);
     thread_yield();
 }
@@ -89,8 +94,10 @@ void handle_umode_interrupt(unsigned int cause) {
 // INTERNAL FUNCTION DEFINITIONS
 //
 
-void handle_interrupt(unsigned int cause) {
-    switch (cause) {
+void handle_interrupt(unsigned int cause)
+{
+    switch (cause)
+    {
     case RISCV_SCAUSE_STI:
         handle_timer_interrupt();
         break;
@@ -103,7 +110,8 @@ void handle_interrupt(unsigned int cause) {
     }
 }
 
-void handle_extern_interrupt(void) {
+void handle_extern_interrupt(void)
+{
     int srcno;
 
     srcno = plic_claim_interrupt();

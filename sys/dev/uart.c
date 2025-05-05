@@ -43,19 +43,23 @@
 // INTERNAL TYPE DEFINITIONS
 //
 
-struct uart_regs {
-    union {
+struct uart_regs
+{
+    union
+    {
         char rbr; // DLAB=0 read
         char thr; // DLAB=0 write
         uint8_t dll; // DLAB=1
     };
 
-    union {
+    union
+    {
         uint8_t ier; // DLAB=0
         uint8_t dlm; // DLAB=1
     };
 
-    union {
+    union
+    {
         uint8_t iir; // read
         uint8_t fcr; // write
     };
@@ -74,13 +78,15 @@ struct uart_regs {
 #define IER_DRIE (1 << 0)
 #define IER_THREIE (1 << 1)
 
-struct ringbuf {
+struct ringbuf
+{
     unsigned int hpos; // head of queue (from where elements are removed)
     unsigned int tpos; // tail of queue (where elements are inserted)
     char data[UART_RBUFSZ];
 };
 
-struct uart_device {
+struct uart_device
+{
     volatile struct uart_regs * regs;
     int irqno;
     int instno;
@@ -115,8 +121,10 @@ static char rbuf_getc(struct ringbuf * rbuf);
 // EXPORTED FUNCTION DEFINITIONS
 //
 
-void uart_attach(void * mmio_base, int irqno) {
-    static const struct iointf uart_iointf = {
+void uart_attach(void * mmio_base, int irqno)
+{
+    static const struct iointf uart_iointf =
+    {
         .close = &uart_close,
         .read = &uart_read,
         .write = &uart_write
@@ -125,17 +133,16 @@ void uart_attach(void * mmio_base, int irqno) {
     struct uart_device * uart;
 
     uart = kcalloc(1, sizeof(struct uart_device));
-
     uart->regs = mmio_base;
     uart->irqno = irqno;
-
     ioinit0(&uart->io, &uart_iointf);
 
     // Check if we're trying to attach UART0, which is used for the console. It
     // had already been initialized and should not be accessed as a normal
     // device.
 
-    if (mmio_base != (void*)UART0_MMIO_BASE) {
+    if (mmio_base != (void*)UART0_MMIO_BASE)
+    {
 
         uart->regs->ier = 0;
         uart->regs->lcr = LCR_DLAB;
@@ -147,29 +154,23 @@ void uart_attach(void * mmio_base, int irqno) {
 
         uart->instno = register_device(UART_NAME, uart_open, uart);
 
-    } else
+    }
+    else
+    {
         uart->instno = register_device(UART_NAME, NULL, NULL);
+    }
 }
 
-/*
 int uart_open(struct io ** ioptr, void * aux)
-
-Inputs: struct io ** ioptr, void * aux
-
-Output: -EBUSY if the uart device is in use, 0 is opened correctly
-
-Description: Initializes the rx and tx buffers and enables the interrupt source and attach the interrupt handler
-to the source. Returns the io pointer.
-
-Side Effects: Heap is used to allocate the uart device
-*/
-int uart_open(struct io ** ioptr, void * aux) {
+{
     struct uart_device * const uart = aux;
 
     trace("%s()", __func__);
 
     if (iorefcnt(&uart->io) != 0)
+    {
         return -EBUSY;
+    }
 
     // reset receive and transmit buffers
     rbuf_init(&uart->rxbuf);
@@ -189,18 +190,8 @@ int uart_open(struct io ** ioptr, void * aux) {
     return 0;
 }
 
-/*
 void uart_close(struct io * io)
-
-Inputs: struct io * io
-
-Output: None
-
-Description: Disables the interrupt source for the uart device. Also frees it from memory
-
-Side Effects: Frees the uart device from the heap.
-*/
-void uart_close(struct io * io) {
+{
     trace("%s()", __func__);
     assert(io != NULL && iorefcnt(io) == 0);
 
@@ -210,53 +201,58 @@ void uart_close(struct io * io) {
     disable_intr_source(uart->irqno);
 }
 
-/*
 long uart_read(struct io * io, void * buf, long bufsz)
-
-Inputs: struct io * io, void * buf, long bufsz
-
-Output: number of characters read
-
-Description: Reads the data from the UART ring buffer and copies it to the buffer. Waits for the data ready and reads until
-the buffer is empty or up to the bufsz.
-
-Side Effects: Used spin wait to wait for empty buffer which may cause the program to be stuck if rbuf is empty for a long time
-*/
-long uart_read(struct io * io, void * buf, long bufsz) {
+{
     struct uart_device * const uart =
         (void*)io - offsetof(struct uart_device, io);
 
     long read_bytes;
+    char * bufptr;
     char c;
     int pie;
 
     trace("%s(bufsz=%ld)",__func__,bufsz);
 
     if (bufsz < 0)
+    {
         return -EINVAL;
+    }
     else if (bufsz == 0)
+    {
         return 0;
+    }
     else if (bufsz > UART_RBUFSZ)
+    {
         bufsz = UART_RBUFSZ;
+    }
 
     // copy at most bufsz number of bytes from recieve ring buffer to buf
 
     pie = disable_interrupts();
+
     while (rbuf_empty(&uart->rxbuf))
+    {
         condition_wait(&uart->rxbuf_not_empty);
+    }
+
     restore_interrupts(pie);
-
     read_bytes = 0;
+    bufptr = (char *)buf;
 
-    do {
+    do
+    {
         c = rbuf_getc(&uart->rxbuf);
-        ((char*) buf)[read_bytes] = c;
+        *bufptr = c;
+        bufptr++;
         read_bytes++;
 
         if (rbuf_empty(&uart->rxbuf))
+        {
             break;
+        }
 
-    } while (read_bytes < bufsz);
+    }
+    while (read_bytes < bufsz);
 
     // enable data receive interrupt
     uart->regs->ier |= IER_DRIE;
@@ -264,21 +260,8 @@ long uart_read(struct io * io, void * buf, long bufsz) {
     return read_bytes;
 }
 
-/*
 long uart_write(struct io * io, const void * buf, long len)
-
-Inputs: struct io * io, const void * buf, long len
-
-Output: number of characters written
-
-Description: Copies data of len bytes from the buf to the tx ring buffer.
-             Spin waits if the txbuf is full. Enables the THREIE for the interrupt.
-
-Side Effects: Used spin wait to wait for the txbuf to not be full in order to
-              write more bytes to it. Program may be stuck in the spin wait
-              while we wait from the txbuf to be emptied.
-*/
-long uart_write(struct io * io, const void * buf, long len) {
+{
     struct uart_device * const uart =
         (void*)io - offsetof(struct uart_device, io);
 
@@ -288,17 +271,26 @@ long uart_write(struct io * io, const void * buf, long len) {
     int pie;
 
     if (len < 0)
+    {
         return -EINVAL;
+    }
     else if (len > UART_RBUFSZ)
+    {
         len = UART_RBUFSZ;
+    }
 
     write_bytes = 0;
     bufptr = (char *)buf;
 
-    while (write_bytes < len) {
+    while (write_bytes < len)
+    {
         pie = disable_interrupts();
+
         while (rbuf_full(&uart->txbuf))
+        {
             condition_wait(&uart->txbuf_not_full);
+        }
+
         restore_interrupts(pie);
 
         c = *bufptr;
@@ -314,66 +306,62 @@ long uart_write(struct io * io, const void * buf, long len) {
     return len;
 }
 
-/*
 void uart_isr(int srcno, void * aux)
-
-Inputs: int srcno, void * aux
-
-Output: none
-
-Description: If there is a data ready interrupt and rxbuf isn't full, read a
-             character from the RBR and put it onto the rxbuf.
-             If there is a Transmit Holding empty interrupt and tx buf isn't
-             empty, a character is copied from the txbuf to the
-             Transmit Hold Register (thr). Disable the data ready interrupt if
-             the rxbuf is full. Disable the transmit Holding empty interrupt
-             if the txbuf is empty.
-
-Side Effects: Used spin wait to wait for the txbuf to not be full in order to
-              write more bytes to it. Program may be stuck in the spin wait
-              while we wait from the txbuf to be emptied.
-*/
-void uart_isr(int srcno, void * aux) {
+{
     struct uart_device* uart = aux;
     char c;
 
     // if the data ready bit is enabled, copy a character from
     // the RBR to the rxbuf
-    if (uart->regs->lsr & LSR_DR) {
+    if (uart->regs->lsr & LSR_DR)
+    {
         c = uart->regs->rbr;
         if (!rbuf_full(&uart->rxbuf))
+        {
             rbuf_putc(&uart->rxbuf, c);
+        }
         else
+        {
             uart->regs->ier &= ~IER_DRIE;
+        }
 
         condition_broadcast(&uart->rxbuf_not_empty);
     }
 
     // if the THRE is enabled, copy a character from the tx buf to the THR
-    if (uart->regs->lsr & LSR_THRE) {
+    if (uart->regs->lsr & LSR_THRE)
+    {
         if (!rbuf_empty(&uart->txbuf))
+        {
             uart->regs->thr = rbuf_getc(&uart->txbuf);
+        }
         else
+        {
             uart->regs->ier &= ~IER_THREIE;
+        }
 
         condition_broadcast(&uart->txbuf_not_full);
     }
 }
 
-void rbuf_init(struct ringbuf * rbuf) {
+void rbuf_init(struct ringbuf * rbuf)
+{
     rbuf->hpos = 0;
     rbuf->tpos = 0;
 }
 
-int rbuf_empty(const struct ringbuf * rbuf) {
+int rbuf_empty(const struct ringbuf * rbuf)
+{
     return (rbuf->hpos == rbuf->tpos);
 }
 
-int rbuf_full(const struct ringbuf * rbuf) {
+int rbuf_full(const struct ringbuf * rbuf)
+{
     return ((uint16_t)(rbuf->tpos - rbuf->hpos) == UART_RBUFSZ);
 }
 
-void rbuf_putc(struct ringbuf * rbuf, char c) {
+void rbuf_putc(struct ringbuf * rbuf, char c)
+{
     uint_fast16_t tpos;
 
     tpos = rbuf->tpos;
@@ -382,7 +370,8 @@ void rbuf_putc(struct ringbuf * rbuf, char c) {
     rbuf->tpos = tpos + 1;
 }
 
-char rbuf_getc(struct ringbuf * rbuf) {
+char rbuf_getc(struct ringbuf * rbuf)
+{
     uint_fast16_t hpos;
     char c;
 
@@ -397,7 +386,8 @@ char rbuf_getc(struct ringbuf * rbuf) {
 
 #define UART0 (*(volatile struct uart_regs*)UART0_MMIO_BASE)
 
-void console_device_init(void) {
+void console_device_init(void)
+{
     UART0.ier = 0x00;
 
     // Configure UART0. We set the baud rate divisor to 1, the lowest value,
@@ -414,18 +404,24 @@ void console_device_init(void) {
     UART0.lcr = 0;
 }
 
-void console_device_putc(char c) {
+void console_device_putc(char c)
+{
     // Spin until THR is empty
     while (!(UART0.lsr & LSR_THRE))
+    {
         continue;
+    }
 
     UART0.thr = c;
 }
 
-char console_device_getc(void) {
+char console_device_getc(void)
+{
     // Spin until RBR contains a byte
     while (!(UART0.lsr & LSR_DR))
+    {
         continue;
+    }
 
     return UART0.rbr;
 }

@@ -12,12 +12,14 @@
 // EXPORTED TYPE DEFINITIONS
 //
 
-struct io {
+struct io
+{
     const struct iointf * intf;
     unsigned long refcnt;
 };
 
-struct iointf {
+struct iointf
+{
     void (*close) (
         struct io * io
     );

@@ -16,7 +16,8 @@
 // EXPORTED FUNCTION DEFINITIONS
 //
 
-void virtio_attach(void * mmio_base, int irqno) {
+void virtio_attach(void * mmio_base, int irqno)
+{
     volatile struct virtio_mmio_regs * const regs = mmio_base;
 
     extern void viocons_attach (
@@ -34,24 +35,29 @@ void virtio_attach(void * mmio_base, int irqno) {
     extern void viohi_attach (
         volatile struct virtio_mmio_regs * regs, int irqno); // viohi.c
 
-    if (regs->magic_value != VIRTIO_MAGIC) {
+    if (regs->magic_value != VIRTIO_MAGIC)
+    {
         kprintf("%p: No virtio magic number found\n", mmio_base);
         return;
     }
 
-    if (regs->version != 2) {
+    if (regs->version != 2)
+    {
         kprintf("%p: Unexpected virtio version (found %u, expected %u)\n",
             mmio_base, (unsigned int)regs->version, 2);
         return;
     }
 
     if (regs->device_id == VIRTIO_ID_NONE)
+    {
         return;
+    }
 
     regs->status = 0; // reset
     regs->status = VIRTIO_STAT_ACKNOWLEDGE;
 
-    switch (regs->device_id) {
+    switch (regs->device_id)
+    {
     case VIRTIO_ID_CONSOLE:
         debug("%p: Found virtio console device", regs);
         viocons_attach(regs, irqno);
@@ -89,20 +95,26 @@ int virtio_negotiate_features (
 
     // Check if all needed features are offered
 
-    for (i = 0; i < VIRTIO_FEATLEN; i++) {
-        if (needed[i] != 0) {
+    for (i = 0; i < VIRTIO_FEATLEN; i++)
+    {
+        if (needed[i] != 0)
+        {
             regs->device_features_sel = i;
             __sync_synchronize(); // fence o,i
             if ((regs->device_features & needed[i]) != needed[i])
+            {
                 return -ENOTSUP;
+            }
         }
     }
 
     // All required features are available. Now request the desired ones (which
     // should be a superset of the required ones).
 
-    for (i = 0; i < VIRTIO_FEATLEN; i++) {
-        if (wanted[i] != 0) {
+    for (i = 0; i < VIRTIO_FEATLEN; i++)
+    {
+        if (wanted[i] != 0)
+        {
             regs->device_features_sel = i;
             regs->driver_features_sel = i;
             __sync_synchronize(); // fence o,i

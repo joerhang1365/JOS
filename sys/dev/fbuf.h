@@ -1,5 +1,5 @@
 // fbuf.h - ioctls for a frame buffer device (e.g. viogpu)
-// 
+//
 // Copyright (c) 2025 University of Illinois
 // SPDX-License-identifier: NCSA
 //
@@ -13,7 +13,8 @@
 
 #define FBUF_B8G8R8X8       2 // VIRTIO_GPU_FORMAT_B8G8R8X8_UNORM
 
-struct fbuf_conf {
+struct fbuf_conf
+{
     unsigned short width;
     unsigned short height;
     unsigned short pxtype; // e.g. FBUF_B8G8R8X8

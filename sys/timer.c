@@ -38,13 +38,14 @@ static void alarm_insert_sorted(struct alarm * al);
 // EXPORTED FUNCTION DEFINITIONS
 //
 
-void timer_init(void) {
+void timer_init(void)
+{
     set_stcmp(UINT64_MAX);
     timer_initialized = 1;
     sleep_list = NULL;
 
 	// set up initial timer interrupt for preemptive scheduling
-    set_stcmp(rdtime() + 1000 * (TIMER_FREQ / 1000 / 1000));
+    //set_stcmp(rdtime() + 1000 * (TIMER_FREQ / 1000 / 1000));
 }
 
 // void alarm_init(struct alarm * al, const char * name)
@@ -56,13 +57,16 @@ void timer_init(void) {
 //       const char * name
 // return: void
 
-void alarm_init(struct alarm * al, const char * name) {
+void alarm_init(struct alarm * al, const char * name)
+{
     long long now = rdtime();
 
     trace("%s()",__func__);
 
     if (name == NULL)
+    {
         name = "wake tf up";
+    }
 
     condition_init(&al->cond, name);
     al->next = NULL;
@@ -79,7 +83,8 @@ void alarm_init(struct alarm * al, const char * name) {
 //       unsigned long long tcnt
 // return: void
 
-void alarm_sleep(struct alarm * al, unsigned long long tcnt) {
+void alarm_sleep(struct alarm * al, unsigned long long tcnt)
+{
     unsigned long long now = rdtime();
     int pie;
 
@@ -87,13 +92,19 @@ void alarm_sleep(struct alarm * al, unsigned long long tcnt) {
 
     // if the tcnt is so large it wraps around, set it to UINT64_MAX
     if (UINT64_MAX - al->twake < tcnt)
+    {
         al->twake = UINT64_MAX;
+    }
     else
+    {
         al->twake += tcnt;
+    }
 
     // if the wake-up time has already passed, return
     if (al->twake <= now)
+    {
         return;
+    }
 
     // insert alarm at next earliest position
     pie = disable_interrupts();
@@ -102,7 +113,9 @@ void alarm_sleep(struct alarm * al, unsigned long long tcnt) {
 
     // set trigger if new alarm has earliest time
     if (sleep_list == al)
+    {
         set_stcmp(al->twake);
+    }
 
     csrs_sie(RISCV_SIE_STIE); // enable timer interrupts
     condition_wait(&al->cond); // put current thread to sleep
@@ -116,31 +129,38 @@ void alarm_sleep(struct alarm * al, unsigned long long tcnt) {
 // args: struct alarm * al
 // return: void
 
-void alarm_reset(struct alarm * al) {
+void alarm_reset(struct alarm * al)
+{
     al->twake = rdtime();
 }
 
-void alarm_sleep_sec(struct alarm * al, unsigned int sec) {
+void alarm_sleep_sec(struct alarm * al, unsigned int sec)
+{
     alarm_sleep(al, sec * TIMER_FREQ);
 }
 
-void alarm_sleep_ms(struct alarm * al, unsigned long ms) {
+void alarm_sleep_ms(struct alarm * al, unsigned long ms)
+{
     alarm_sleep(al, ms * (TIMER_FREQ / 1000));
 }
 
-void alarm_sleep_us(struct alarm * al, unsigned long us) {
+void alarm_sleep_us(struct alarm * al, unsigned long us)
+{
     alarm_sleep(al, us * (TIMER_FREQ / 1000 / 1000));
 }
 
-void sleep_sec(unsigned int sec) {
+void sleep_sec(unsigned int sec)
+{
     sleep_ms(1000UL * sec);
 }
 
-void sleep_ms(unsigned long ms) {
+void sleep_ms(unsigned long ms)
+{
     sleep_us(1000UL * ms);
 }
 
-void sleep_us(unsigned long us) {
+void sleep_us(unsigned long us)
+{
     struct alarm al;
 
     alarm_init(&al, "sleep");
@@ -162,7 +182,8 @@ void sleep_us(unsigned long us) {
 // args: void
 // return: void
 
-void handle_timer_interrupt(void) {
+void handle_timer_interrupt(void)
+{
     struct alarm * target;
     uint64_t now = rdtime();
     int32_t pie;
@@ -174,24 +195,32 @@ void handle_timer_interrupt(void) {
 
     // check if any alarms are past due
 
-    while (sleep_list != NULL) {
+    while (sleep_list != NULL)
+    {
         target = sleep_list;
         sleep_list = target->next;
         target->next = NULL;
 
         if (target->twake <= now)
+        {
             condition_broadcast(&target->cond);
+        }
         else
+        {
             break; // list ordered from least to greatest
+        }
     }
 
     // check if there are no more alarms
 
-    if (sleep_list == NULL) {
+    if (sleep_list == NULL)
+    {
 		// always have one timer set for preemptive scheduling
-        set_stcmp(now + 1000 * (TIMER_FREQ / 1000 / 1000));
-        //csrc_sie(RISCV_SIE_STIE); // disable timer interrupts
-    } else {
+        //set_stcmp(now + 1000 * (TIMER_FREQ / 1000 / 1000));
+        csrc_sie(RISCV_SIE_STIE); // disable timer interrupts
+    }
+    else
+    {
         // set next timer interrupt trigger
         set_stcmp(sleep_list->twake);
     }
@@ -208,7 +237,8 @@ void handle_timer_interrupt(void) {
 // args: struct alarm * al
 // return: void
 
-static void alarm_insert_sorted(struct alarm * al) {
+static void alarm_insert_sorted(struct alarm * al)
+{
     struct alarm ** target;
 
     trace("%s(al=%p)", __func__, al);
@@ -217,7 +247,9 @@ static void alarm_insert_sorted(struct alarm * al) {
 
     // insert alarm from lowest twake to highest twake
     while (*target != NULL && (*target)->twake < al->twake)
+    {
         target = &(*target)->next;
+    }
 
     al->next = *target;
     *target = al;

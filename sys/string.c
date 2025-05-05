@@ -10,15 +10,16 @@
 #include <limits.h>
 
 // INTERNAL STRUCTURE DEFINITIONS
-// 
+//
 
-struct vsnprintf_state {
+struct vsnprintf_state
+{
     char * pos;
     size_t rem;
 };
 
 // INTERNAL FUNCTION DECLARATIONS
-// 
+//
 
 static void vsnprintf_putc(char c, void * aux);
 
@@ -35,12 +36,14 @@ size_t format_char (
     int c, unsigned int len);
 
 // EXPORTED FUNCTION DEFINITIONS
-// 
+//
 
-int strcmp(const char * s1, const char * s2) {
+int strcmp(const char * s1, const char * s2)
+{
     // A null pointer compares before any non-null pointer
 
-    if (s1 == NULL || s2 == NULL) {
+    if (s1 == NULL || s2 == NULL)
+    {
         if (s1 == NULL)
             return (s2 == NULL) ? 0 : -1;
         else
@@ -49,7 +52,8 @@ int strcmp(const char * s1, const char * s2) {
 
     // Find first non-matching character (or '\0')
 
-    while (*s1 == *s2 && *s1 != '\0') {
+    while (*s1 == *s2 && *s1 != '\0')
+    {
         s1 += 1;
         s2 += 1;
     }
@@ -62,20 +66,23 @@ int strcmp(const char * s1, const char * s2) {
         return 0;
 }
 
-int strncmp(const char * s1, const char * s2, size_t n) {
-  while (n != 0 && *s1 != '\0' && *s1 == *s2) {
-    s1 += 1;
-    s2 += 1;
-    n -= 1;
-  }
+int strncmp(const char * s1, const char * s2, size_t n)
+{
+    while (n != 0 && *s1 != '\0' && *s1 == *s2)
+    {
+        s1 += 1;
+        s2 += 1;
+        n -= 1;
+    }
 
-  if (n != 0)
-    return (unsigned int)*s1 - (unsigned int)*s2;
-  else
-    return 0;
+    if (n != 0)
+        return (unsigned int)*s1 - (unsigned int)*s2;
+    else
+        return 0;
 }
 
-size_t strlen(const char * s) {
+size_t strlen(const char * s)
+{
     const char * p = s;
 
     if (s == NULL)
@@ -83,14 +90,16 @@ size_t strlen(const char * s) {
 
     while (*p != '\0')
         p += 1;
-    
+
     return (p - s);
 }
 
-char * strncpy(char *dst, const char *src, size_t n) {
+char * strncpy(char *dst, const char *src, size_t n)
+{
     char * orig_dst = dst;
 
-    while (n != 0 && *src != '\0') {
+    while (n != 0 && *src != '\0')
+    {
         *dst = *src;
         src += 1;
         dst += 1;
@@ -99,12 +108,14 @@ char * strncpy(char *dst, const char *src, size_t n) {
 
     if (n != 0)
         *dst = '\0';
-    
+
     return orig_dst;
 }
 
-char * strchr(const char * s, int c) {
-    while (*s != '\0') {
+char * strchr(const char * s, int c)
+{
+    while (*s != '\0')
+    {
         if (*s == c)
             return (char*)s;
         s += 1;
@@ -113,10 +124,12 @@ char * strchr(const char * s, int c) {
     return NULL;
 }
 
-char * strrchr(const char * s, int c) {
+char * strrchr(const char * s, int c)
+{
     char * p = NULL;
 
-    while (*s != '\0') {
+    while (*s != '\0')
+    {
         if (*s == c)
             p = (char*)s;
         s += 1;
@@ -125,21 +138,26 @@ char * strrchr(const char * s, int c) {
     return p;
 }
 
-void * memset(void * s, int c, size_t n) {
-  char * p = s;
+void * memset(void * s, int c, size_t n)
+{
+    char * p = s;
 
-  while (n != 0) {
-    *p++ = c;
-    n -= 1;
-  }
+    while (n != 0)
+    {
+        *p++ = c;
+        n -= 1;
+    }
 
-  return s;
+    return s;
 }
 
-void * memcpy(void * restrict dst, const void * restrict src, size_t n) {
+void * memcpy(void * restrict dst, const void * restrict src, size_t n)
+{
     const char * q = src;
     char *p = dst;
-    while (n != 0) {
+
+    while (n != 0)
+    {
         // kprintf("buf_address_dst: %p\n", p);
         // kprintf("buf_address_src: %p\n", q);
         *p = *q;
@@ -151,13 +169,16 @@ void * memcpy(void * restrict dst, const void * restrict src, size_t n) {
     return dst;
 }
 
-int memcmp(const void * p1, const void * p2, size_t n) {
+int memcmp(const void * p1, const void * p2, size_t n)
+{
     const uint8_t * u = p1;
     const uint8_t * v = p2;
 
-    while (n != 0) {
+    while (n != 0)
+    {
         if (*u != *v)
             return (*u - *v);
+
         u += 1;
         v += 1;
         n -= 1;
@@ -166,34 +187,41 @@ int memcmp(const void * p1, const void * p2, size_t n) {
     return 0;
 }
 
-unsigned long strtoul(const char * str, char ** endptr, int base) {
+unsigned long strtoul(const char * str, char ** endptr, int base)
+{
     unsigned long val = 0;
     int neg = 0;
     char c;
 
     // strtoul not implemented for base 0 or bases greater than 10
 
-    if (str == NULL || base <= 1 || 10 < base) {        
+    if (str == NULL || base <= 1 || 10 < base)
+    {
         if (endptr != NULL)
             *endptr = NULL;
         return -1UL;
     }
 
-    if (*str == '-') {
+    if (*str == '-')
+    {
         str += 1;
         neg = 1;
-    } else if (*str == '+')
+    }
+    else if (*str == '+')
         str += 1;
 
-    if (base <= 10) {
-        for (;;) {
+    if (base <= 10)
+    {
+        for (;;)
+        {
             c = *str;
-            if (c < '0' || '0' + base <= c) {
+            if (c < '0' || '0' + base <= c)
+            {
                 if (endptr != NULL)
                     *endptr = (char*)str;
                 return neg ? -val : val;
             }
-            
+
             val *= base;
             val += c - '0';
             str += 1;
@@ -203,7 +231,8 @@ unsigned long strtoul(const char * str, char ** endptr, int base) {
     return val;
 }
 
-size_t snprintf(char * buf, size_t bufsz, const char * fmt, ...) {
+size_t snprintf(char * buf, size_t bufsz, const char * fmt, ...)
+{
     va_list ap;
     size_t n;
 
@@ -213,7 +242,8 @@ size_t snprintf(char * buf, size_t bufsz, const char * fmt, ...) {
     return n;
 }
 
-size_t vsnprintf(char * buf, size_t bufsz, const char * fmt, va_list ap) {
+size_t vsnprintf(char * buf, size_t bufsz, const char * fmt, va_list ap)
+{
     struct vsnprintf_state state;
     size_t n;
 
@@ -243,16 +273,19 @@ size_t vgprintf (
     p = fmt;
     nout = 0;
 
-    while (*p != '\0') {
-        if (*p == '%') {
+    while (*p != '\0')
+    {
+        if (*p == '%')
+        {
             p += 1;
 
             // Parse width specifier
-            
+
             zpad = (*p == '0');
             len = 0;
 
-            while ('0' <= *p && *p <= '9') {
+            while ('0' <= *p && *p <= '9')
+            {
                 len = 10 * len + (*p - '0');
                 p += 1;
             }
@@ -260,12 +293,14 @@ size_t vgprintf (
             // Check for l and other prefixes prefix
 
             lcnt = 0;
-            while (*p == 'l') {
+            while (*p == 'l')
+            {
                 lcnt += 1;
                 p += 1;
             }
 
-            if (*p == 'z') {
+            if (*p == 'z')
+            {
                 if (sizeof(size_t) == sizeof(int))
                     lcnt = 0;
                 if (sizeof(size_t) == sizeof(long))
@@ -273,7 +308,9 @@ size_t vgprintf (
                 if (sizeof(size_t) == sizeof(long long))
                     lcnt = 2;
                 p += 1;
-            } else if (*p == 'j') {
+            }
+            else if (*p == 'j')
+            {
                 if (sizeof(intmax_t) == sizeof(int))
                     lcnt = 0;
                 if (sizeof(intmax_t) == sizeof(long))
@@ -285,7 +322,8 @@ size_t vgprintf (
 
             // Parse format specifier character
 
-            switch (*p) {
+            switch (*p)
+            {
             case 'd':
             case 'i':
                 if (lcnt > 0)
@@ -295,8 +333,9 @@ size_t vgprintf (
                         ival = va_arg(ap, long);
                 else
                     ival = va_arg(ap, int);
-                
-                if (ival < 0) {
+
+                if (ival < 0)
+                {
                     putcfn('-', aux);
                     nout += 1;
 
@@ -317,29 +356,29 @@ size_t vgprintf (
                         ival = va_arg(ap, unsigned long);
                 else
                     ival = va_arg(ap, unsigned int);
-                
+
                 if (*p == 'x')
                     base = 16;
                 else
                     base = 10;
-                
+
                 nout += format_int(putcfn, aux, ival, base, zpad, len);
                 break;
-            
+
             case 's':
                 nout += format_str(putcfn, aux, va_arg(ap, char *), len);
                 break;
-            
+
             case 'c':
                 nout += format_char(putcfn, aux, va_arg(ap, int), len);
                 break;
-            
+
             case 'p':
                 ival = (uintptr_t)va_arg(ap, void *);
                 nout += format_str(putcfn, aux, "0x", 2);
                 nout += format_int(putcfn, aux, ival, 16, zpad, len);
                 break;
-            
+
             default:
                 putcfn('%', aux);
                 nout += 1;
@@ -354,8 +393,10 @@ size_t vgprintf (
                     p -= 1;
                 break;
             }
-        
-        } else {
+
+        }
+        else
+        {
             putcfn(*p, aux);
             nout += 1;
         }
@@ -367,9 +408,10 @@ size_t vgprintf (
 }
 
 // INTERNAL FUNCTION DEFINITIONS
-// 
+//
 
-void vsnprintf_putc(char c, void * aux) {
+void vsnprintf_putc(char c, void * aux)
+{
     struct vsnprintf_state * state = aux;
 
     if (state->rem <= 1)
@@ -394,7 +436,8 @@ size_t format_int (
 
     // Write formatted integer to buf from end
 
-    do {
+    do
+    {
         d = val % base;
         val /= base;
         p -= 1;
@@ -403,11 +446,13 @@ size_t format_int (
             *p = '0' + d;
         else
             *p = 'a' + d - 10;
-    } while (val != 0);
+    }
+    while (val != 0);
 
     // Write padding if needed
 
-    while (buf + sizeof(buf) - p < len) {
+    while (buf + sizeof(buf) - p < len)
+    {
         if (zpad)
             putcfn('0', aux);
         else
@@ -415,10 +460,11 @@ size_t format_int (
         nout += 1;
         len -= 1;
     }
-    
+
     // Write formatted integer in buf.
 
-    while (p < buf + sizeof(buf)) {
+    while (p < buf + sizeof(buf))
+    {
         putcfn(*p, aux);
         nout += 1;
         p += 1;
@@ -436,17 +482,20 @@ size_t format_str (
     if (s == NULL)
         s = "(null)";
 
-    while (*s != '\0') {
+    while (*s != '\0')
+    {
         putcfn(*s, aux);
         nout += 1;
         s += 1;
     }
 
-    if (nout < len) {
+    if (nout < len)
+    {
         len -= nout;
         nout += len;
 
-        while (len > 0) {
+        while (len > 0)
+        {
             putcfn(' ', aux);
             len -= 1;
         }
@@ -463,10 +512,11 @@ size_t format_char (
 
     if (len <= 0)
         len = 1;
-    
+
     nout += len;
 
-    while (len > 1) {
+    while (len > 1)
+    {
         putcfn(' ', aux);
         len -= 1;
     }

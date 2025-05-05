@@ -38,22 +38,26 @@
 // INTERNAL TYPE DEFINITIONS
 //
 
-struct viorng_device {
+struct viorng_device
+{
     volatile struct virtio_mmio_regs * regs;
     int irqno;
     int instno;
 
     struct io io;
 
-    struct {
+    struct
+    {
         uint16_t last_used_idx;
 
-        union {
+        union
+        {
             struct virtq_avail avail;
             char _avail_filler[VIRTQ_AVAIL_SIZE(1)];
         };
 
-        union {
+        union
+        {
             volatile struct virtq_used used;
             char _used_filler[VIRTQ_USED_SIZE(1)];
         };
@@ -62,7 +66,8 @@ struct viorng_device {
         // the avail and used rings.
 
         struct virtq_desc desc[1];
-    } vq;
+    }
+    vq;
 
     // bufcnt is the number of bytes left in buffer. The usable bytes are
     // between buf+0 and buf+bufcnt. (We read from the end of the buffer.)
@@ -101,7 +106,8 @@ static void viorng_isr(int irqno, void * aux);
 //       int irqno
 // return: void
 
-void viorng_attach(volatile struct virtio_mmio_regs * regs, int irqno) {
+void viorng_attach(volatile struct virtio_mmio_regs * regs, int irqno)
+{
     virtio_featset_t enabled_features, wanted_features, needed_features;
     int result;
 
@@ -115,7 +121,8 @@ void viorng_attach(volatile struct virtio_mmio_regs * regs, int irqno) {
     virtio_featset_init(wanted_features);
     result = virtio_negotiate_features(regs,
         enabled_features, wanted_features, needed_features);
-    if (result != 0) {
+    if (result != 0)
+    {
         kprintf("%p: FAILED virtio feature negotiation\n", regs);
         regs->status |= VIRTIO_STAT_FAILED;
         return;
@@ -132,7 +139,8 @@ void viorng_attach(volatile struct virtio_mmio_regs * regs, int irqno) {
     condition_init(&viorng->bytes_ready, "viorng_bytes_ready");
     lock_init(&viorng->vlock);
 
-    static const struct iointf viorng_iointf = {
+    static const struct iointf viorng_iointf =
+    {
         .close = &viorng_close,
         .read = &viorng_read,
     };
@@ -154,7 +162,8 @@ void viorng_attach(volatile struct virtio_mmio_regs * regs, int irqno) {
             (uint64_t)&viorng->vq.used, (uint64_t)&viorng->vq.avail);
     virtio_enable_virtq(regs, 0);
 
-    if (regs->queue_ready != 1) {
+    if (regs->queue_ready != 1)
+    {
         kprintf("%p: FAILED queue %d not ready\n", regs, 0);
         regs->status |= VIRTIO_STAT_FAILED;
         return;
@@ -173,7 +182,8 @@ void viorng_attach(volatile struct virtio_mmio_regs * regs, int irqno) {
 //       void * aux
 // return: int [returns 0 on success]
 
-static int viorng_open(struct io ** ioptr, void * aux) {
+static int viorng_open(struct io ** ioptr, void * aux)
+{
     struct viorng_device * const viorng = aux;
 
     trace("%s()",__func__);
@@ -193,7 +203,8 @@ static int viorng_open(struct io ** ioptr, void * aux) {
 // args: struct io * io
 // return: void
 
-static void viorng_close(struct io * io){
+static void viorng_close(struct io * io)
+{
     trace("%s()",__func__);
     assert(io != NULL && iorefcnt(io) == 0);
 
@@ -216,7 +227,8 @@ static void viorng_close(struct io * io){
 //       long bufsz
 // return: long [number of bytes read]
 
-static long viorng_read(struct io * io, void * buf, long bufsz) {
+static long viorng_read(struct io * io, void * buf, long bufsz)
+{
     struct viorng_device * const viorng =
         (void*)io - offsetof(struct viorng_device, io);
 
@@ -229,24 +241,31 @@ static long viorng_read(struct io * io, void * buf, long bufsz) {
     trace("%s(bufsz=%ld)",__func__,bufsz);
 
     if (bufsz < 0)
+    {
         return -EINVAL;
-
-    if (bufsz > VIORNG_BUFSZ)
+    }
+    else if (bufsz > VIORNG_BUFSZ)
+    {
         bufsz = VIORNG_BUFSZ;
+    }
 
     read_bytes = 0;
 
     // get random bytes from viorng
 
-    while (read_bytes < bufsz) {
-        while (viorng->bufcnt > 0) {
+    while (read_bytes < bufsz)
+    {
+        while (viorng->bufcnt > 0)
+        {
             ((char*)buf)[read_bytes] =
                 viorng->buf[viorng->bufcnt - 1];
             read_bytes++;
             viorng->bufcnt--;
 
             if (read_bytes >= bufsz)
+            {
                 return read_bytes;
+            }
         }
 
         // request more random bytes from viorng
@@ -261,7 +280,8 @@ static long viorng_read(struct io * io, void * buf, long bufsz) {
         // needed can also disable interrupts or something look at docs
 
         // pie = disable_interrupts();
-        while (viorng->vq.avail.idx != viorng->vq.used.idx) {
+        while (viorng->vq.avail.idx != viorng->vq.used.idx)
+        {
             // condition_wait(&viorng->bytes_ready);
             continue;
         }
@@ -272,6 +292,7 @@ static long viorng_read(struct io * io, void * buf, long bufsz) {
         used_idx = viorng->vq.last_used_idx % 1;
         viorng->bufcnt = viorng->vq.used.ring[used_idx].len;
     }
+
     lock_release(&viorng->vlock);
 
     return read_bytes;
@@ -289,11 +310,13 @@ static long viorng_read(struct io * io, void * buf, long bufsz) {
 //       void * aux
 // return: void
 
-static void viorng_isr(int irqno, void * aux) {
+static void viorng_isr(int irqno, void * aux)
+{
     struct viorng_device * viorng = aux;
 
     // check if used buffer was updated
-    if (viorng->regs->interrupt_status & VIRTQ_INTR_USED) {
+    if (viorng->regs->interrupt_status & VIRTQ_INTR_USED)
+    {
         // let device know interrupt was handled
         viorng->regs->interrupt_ack = VIRTQ_INTR_USED;
         viorng->vq.last_used_idx++;
@@ -301,7 +324,8 @@ static void viorng_isr(int irqno, void * aux) {
         condition_broadcast(&viorng->bytes_ready);
     }
 
-    if (viorng->regs->interrupt_status & VIRTQ_INTR_CONF) {
+    if (viorng->regs->interrupt_status & VIRTQ_INTR_CONF)
+    {
         viorng->regs->interrupt_ack = VIRTQ_INTR_CONF;
     }
 

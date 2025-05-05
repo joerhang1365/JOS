@@ -1,5 +1,5 @@
 // trap.h - Trap frame
-// 
+//
 // Copyright (c) 2024-2025 University of Illinois
 // SPDX-License-identifier: NCSA
 //
@@ -13,7 +13,8 @@
 // handling a trap in S mode. (For handling traps to M mode, we don't bother
 // with a trap frame; see see.s.)
 
-struct trap_frame {
+struct trap_frame
+{
     long a0, a1, a2, a3, a4, a5, a6, a7;
     long t0, t1, t2, t3, t4, t5, t6;
     long s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11;

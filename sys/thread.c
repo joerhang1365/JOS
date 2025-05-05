@@ -49,7 +49,8 @@ char thrmgr_initialized = 0;
 // INTERNAL TYPE DEFINITIONS
 //
 
-enum thread_state {
+enum thread_state
+{
     THREAD_UNINITIALIZED = 0,
     THREAD_WAITING,
     THREAD_RUNNING,
@@ -57,18 +58,21 @@ enum thread_state {
     THREAD_EXITED
 };
 
-struct thread_context {
+struct thread_context
+{
     uint64_t s[12];
     void * ra;
     void * sp;
 };
 
-struct thread_stack_anchor {
+struct thread_stack_anchor
+{
     struct thread * ktp;
     void * kgp;
 };
 
-struct thread {
+struct thread
+{
     struct thread_context ctx;  // must be first member (thrasm.s)
     int id;                     // index into thrtab[]
     enum thread_state state;
@@ -173,7 +177,7 @@ extern void _thread_startup(void);
 //
 
 #define MAIN_TID 0
-#define IDLE_TID (NTHR-1)
+#define IDLE_TID (NTHR - 1)
 
 static struct thread main_thread;
 static struct thread idle_thread;
@@ -181,7 +185,8 @@ static struct thread idle_thread;
 extern char _main_stack_lowest[]; // from start.s
 extern char _main_stack_anchor[]; // from start.s
 
-static struct thread main_thread = {
+static struct thread main_thread =
+{
     .id = MAIN_TID,
     .name = "main",
     .state = THREAD_RUNNING,
@@ -193,7 +198,8 @@ static struct thread main_thread = {
 extern char _idle_stack_lowest[]; // from thrasm.s
 extern char _idle_stack_anchor[]; // from thrasm.s
 
-static struct thread idle_thread = {
+static struct thread idle_thread =
+{
     .id = IDLE_TID,
     .name = "idle",
     .state = THREAD_READY,
@@ -205,12 +211,14 @@ static struct thread idle_thread = {
     .ctx.s[8] = (uintptr_t) &idle_thread_func
 };
 
-static struct thread * thrtab[NTHR] = {
+static struct thread * thrtab[NTHR] =
+{
     [MAIN_TID] = &main_thread,
     [IDLE_TID] = &idle_thread
 };
 
-static struct thread_list ready_list = {
+static struct thread_list ready_list =
+{
     .head = &idle_thread,
     .tail = &idle_thread
 };
@@ -218,11 +226,13 @@ static struct thread_list ready_list = {
 // EXPORTED FUNCTION DEFINITIONS
 //
 
-int running_thread(void) {
+int running_thread(void)
+{
     return TP->id;
 }
 
-void thrmgr_init(void) {
+void thrmgr_init(void)
+{
     trace("%s()", __func__);
     init_main_thread();
     init_idle_thread();
@@ -254,12 +264,16 @@ int thread_spawn (
     int i;
 
     if (name == NULL)
+    {
         name = "orphan";
+    }
 
     child = create_thread(name);
 
     if (child == NULL)
+    {
         return -EMTHR;
+    }
 
     set_thread_state(child, THREAD_READY);
     condition_init(&child->child_exit, "child exit");
@@ -292,24 +306,30 @@ int thread_spawn (
 // args: void
 // return: void
 
-void thread_exit(void) {
+void thread_exit(void)
+{
     struct lock * head;
 
     // if the current thread is the main thread, HALT the entire program.
 
     if(TP->id == MAIN_TID)
+    {
         halt_success();
+    }
 
     // signal parent thread that it has exited
 
     if (TP->parent != NULL)
+    {
         condition_broadcast(&TP->parent->child_exit);
+    }
 
     // check if thread is still holding locks, if so release all of them
 
     head = TP->lock_list;
 
-    while (head != NULL) {
+    while (head != NULL)
+    {
         lock_release(head);
         head = head->next;
     }
@@ -323,7 +343,8 @@ void thread_exit(void) {
     halt_failure();
 }
 
-void thread_yield(void) {
+void thread_yield(void)
+{
     trace("%s() in <%s:%d>", __func__, TP->name, TP->id);
     running_thread_suspend();
 }
@@ -337,11 +358,14 @@ void thread_yield(void) {
 // args: int tid
 // return int [id of the child that exited]
 
-int thread_join(int tid) {
+int thread_join(int tid)
+{
     int child_tid;
 
     // find active child of current thread
-    for (child_tid = 1; child_tid < NTHR - 1; child_tid++) {
+
+    for (child_tid = 1; child_tid < NTHR - 1; child_tid++)
+    {
         if (thrtab[child_tid] != NULL &&
             thrtab[child_tid]->parent == TP)
         {
@@ -349,51 +373,46 @@ int thread_join(int tid) {
         }
     }
 
-    // checking to see if the thread doesn't exist or
-    // if it isn't a child of a running thread
-    if(child_tid == -1 && tid == 0)
+    if ((child_tid >= NTHR - 1 && tid == 0) ||
+        (thrtab[tid] == NULL && tid != 0) ||
+        (thrtab[tid]->parent != TP && tid != 0))
+    {
         return -ECHILD;
+    }
 
-    // checking to see if the identified thread exists and
-    // that it isn't the main thread
-    if(thrtab[tid] == NULL && tid != 0)
-        return -ECHILD;
-
-    // checking to see if the child thread's parent is the
-    // current thread and that it isn't the main thread
-    if(thrtab[tid]->parent != TP && tid !=0)
-        return -ECHILD;
-
-    // if the id isn't 0, then it is a child thread.
     if(tid != 0)
+    {
         child_tid = tid;
+    }
 
-    // if the identified thread's state is exited
-    // release the resources used by that thread
+ 	condition_init(&thrtab[child_tid]->parent->child_exit,
+		thrtab[child_tid]->name);
 
-	// store the name of the child
-	condition_init(&thrtab[child_tid]->parent->child_exit,
-			thrtab[child_tid]->name);
-	while (thrtab[child_tid]->state != THREAD_EXITED) {
+	while (thrtab[child_tid]->state != THREAD_EXITED)
+    {
 		kprintf("waiting on child to exit\n");
 		condition_wait(&thrtab[child_tid]->parent->child_exit);
 	}
+
 	thread_reclaim(child_tid);
 
     return child_tid;
 }
 
-const char * thread_name(int tid) {
+const char * thread_name(int tid)
+{
     assert (0 <= tid && tid < NTHR);
     assert (thrtab[tid] != NULL);
     return thrtab[tid]->name;
 }
 
-const char * running_thread_name(void) {
+const char * running_thread_name(void)
+{
     return TP->name;
 }
 
-void condition_init(struct condition * cond, const char * name) {
+void condition_init(struct condition * cond, const char * name)
+{
     int pie = disable_interrupts();
     tlclear(&cond->wait_list);
     restore_interrupts(pie);
@@ -401,7 +420,8 @@ void condition_init(struct condition * cond, const char * name) {
 }
 
 // puts the thread to sleep
-void condition_wait(struct condition * cond) {
+void condition_wait(struct condition * cond)
+{
     int pie;
 
     trace("%s(cond=<%s>) in <%s:%d>", __func__,
@@ -433,7 +453,8 @@ void condition_wait(struct condition * cond) {
 // args: struct condition * cond
 // return: void
 
-void condition_broadcast(struct condition * cond) {
+void condition_broadcast(struct condition * cond)
+{
     struct thread * head;
     int pie;
 
@@ -443,11 +464,14 @@ void condition_broadcast(struct condition * cond) {
     head = cond->wait_list.head;
 
     if (head == NULL)
+    {
         return;
+    }
 
     pie = disable_interrupts();
 
-    while (head != NULL) {
+    while (head != NULL)
+    {
         set_thread_state(head, THREAD_READY);
         head = head->list_next;
     }
@@ -462,17 +486,20 @@ void condition_broadcast(struct condition * cond) {
 // LOCKING FUNCTION DEFFINITIONS
 //
 
-void lock_init(struct lock * lock) {
+void lock_init(struct lock * lock)
+{
     condition_init(&lock->released, "lock");
     lock->owner = NULL;
     lock->next = NULL;
     lock->cnt = 0;
 }
 
-void lock_acquire(struct lock * lock) {
+void lock_acquire(struct lock * lock)
+{
     int pie;
 
-    if (lock->owner == TP) {
+    if (lock->owner == TP)
+    {
         lock->cnt++;
         debug("thread %s already owns lock", TP->name);
 		debug("lock pointer=%p", lock);
@@ -484,7 +511,8 @@ void lock_acquire(struct lock * lock) {
 
     pie = disable_interrupts();
 
-    while (lock->owner != NULL) {
+    while (lock->owner != NULL)
+    {
         debug("thread %s failed to acquire lock", TP->name);
         condition_wait(&lock->released);
     }
@@ -503,7 +531,8 @@ void lock_acquire(struct lock * lock) {
     debug("lock count=%d", lock->cnt);
 }
 
-void lock_release(struct lock * lock) {
+void lock_release(struct lock * lock)
+{
     struct lock * target;
     struct lock * previous;
 
@@ -515,7 +544,9 @@ void lock_release(struct lock * lock) {
     debug("lock count=%d", lock->cnt);
 
     if (lock->cnt > 0)
+    {
         return;
+    }
 
     debug("thread %s released lock", TP->name);
 
@@ -526,7 +557,8 @@ void lock_release(struct lock * lock) {
     target = TP->lock_list;
     previous = NULL;
 
-    while (target != NULL) {
+    while (target != NULL)
+    {
         if (target == lock)
             break;
 
@@ -534,55 +566,69 @@ void lock_release(struct lock * lock) {
         target = target->next;
     }
 
-    if (target == NULL) {
+    if (target == NULL)
+    {
         condition_broadcast(&lock->released);
         return;
     }
 
     if (target == TP->lock_list)
+    {
         TP->lock_list = target->next;
+    }
     else
+    {
         previous->next = target->next;
+    }
 
     condition_broadcast(&lock->released);
 }
 
-struct process * thread_process(int tid) {
+struct process * thread_process(int tid)
+{
     return thrtab[tid]->proc;
 }
 
-struct process * running_thread_process(void) {
+struct process * running_thread_process(void)
+{
     return TP->proc;
 }
 
-void thread_set_process(int tid, struct process * proc) {
+void thread_set_process(int tid, struct process * proc)
+{
     thrtab[tid]->proc = proc;
 }
 
-extern struct thread_stack_anchor * running_thread_stack_anchor(void) {
+extern struct thread_stack_anchor * running_thread_stack_anchor(void)
+{
     return TP->stack_anchor;
 }
 
-extern struct thread * current_thread(void) {
+extern struct thread * current_thread(void)
+{
     return TP;
 }
 
 // INTERNAL FUNCTION DEFINITIONS
 //
 
-void init_main_thread(void) {
+void init_main_thread(void)
+{
     main_thread.stack_anchor->ktp = &main_thread;
 }
 
-void init_idle_thread(void) {
+void init_idle_thread(void)
+{
     idle_thread.stack_anchor->ktp = &idle_thread;
 }
 
-static void set_running_thread(struct thread * thr) {
+static void set_running_thread(struct thread * thr)
+{
     asm inline ("mv tp, %0" :: "r"(thr) : "tp");
 }
 
-const char * thread_state_name(enum thread_state state) {
+const char * thread_state_name(enum thread_state state)
+{
     static const char * const names[] = {
         [THREAD_UNINITIALIZED] = "UNINITIALIZED",
         [THREAD_WAITING] = "WAITING",
@@ -592,12 +638,17 @@ const char * thread_state_name(enum thread_state state) {
     };
 
     if (0 <= (int)state && (int)state < sizeof(names)/sizeof(names[0]))
+    {
         return names[state];
+    }
     else
+    {
         return "UNDEFINED";
+    }
 };
 
-void thread_reclaim(int tid) {
+void thread_reclaim(int tid)
+{
     struct thread * const thr = thrtab[tid];
     int ctid;
 
@@ -608,7 +659,8 @@ void thread_reclaim(int tid) {
     // all threads to find our children. We could keep a list of all of a
     // thread's children to make this operation more efficient.
 
-    for (ctid = 1; ctid < NTHR; ctid++) {
+    for (ctid = 1; ctid < NTHR; ctid++)
+    {
         if (thrtab[ctid] != NULL && thrtab[ctid]->parent == thr)
             thrtab[ctid]->parent = thr->parent;
     }
@@ -617,7 +669,8 @@ void thread_reclaim(int tid) {
     kfree(thr);
 }
 
-struct thread * create_thread(const char * name) {
+struct thread * create_thread(const char * name)
+{
     struct thread_stack_anchor * anchor;
     void * stack_page;
     struct thread * thr;
@@ -653,6 +706,7 @@ struct thread * create_thread(const char * name) {
     thr->id = tid;
     thr->name = name;
     thr->parent = TP;
+
     return thr;
 }
 
@@ -669,7 +723,8 @@ struct thread * create_thread(const char * name) {
 // args: void
 // return: void
 
-void running_thread_suspend(void) {
+void running_thread_suspend(void)
+{
     struct thread * prev_thread;
     struct thread * next_thread;
     int pie;
@@ -682,7 +737,8 @@ void running_thread_suspend(void) {
 
     pie = disable_interrupts();
 
-    if(TP->state == THREAD_RUNNING) {
+    if (TP->state == THREAD_RUNNING)
+    {
         set_thread_state(TP, THREAD_READY);
         tlinsert(&ready_list, TP);
     }
@@ -691,40 +747,50 @@ void running_thread_suspend(void) {
     restore_interrupts(pie);
 
     // get the next threads memory space
-    if (next_thread->proc != NULL) {
+    if (next_thread->proc != NULL)
+    {
         switch_mspace(next_thread->proc->mtag);
     }
+
+    // pretty big
 
     enable_interrupts();
     set_thread_state(next_thread, THREAD_RUNNING);
     prev_thread = _thread_swtch(next_thread);
 
-    if(prev_thread->state == THREAD_EXITED) {
+    if (prev_thread->state == THREAD_EXITED)
+    {
         free_phys_page(prev_thread->stack_lowest);
     }
 
     restore_interrupts(pie);
 }
 
-void tlclear(struct thread_list * list) {
+void tlclear(struct thread_list * list)
+{
     list->head = NULL;
     list->tail = NULL;
 }
 
-int tlempty(const struct thread_list * list) {
+int tlempty(const struct thread_list * list)
+{
     return (list->head == NULL);
 }
 
-void tlinsert(struct thread_list * list, struct thread * thr) {
+void tlinsert(struct thread_list * list, struct thread * thr)
+{
     thr->list_next = NULL;
 
     if (thr == NULL)
         return;
 
-    if (list->tail != NULL) {
+    if (list->tail != NULL)
+    {
         assert (list->head != NULL);
         list->tail->list_next = thr;
-    } else {
+    }
+    else
+    {
         assert(list->head == NULL);
         list->head = thr;
     }
@@ -732,7 +798,8 @@ void tlinsert(struct thread_list * list, struct thread * thr) {
     list->tail = thr;
 }
 
-struct thread * tlremove(struct thread_list * list) {
+struct thread * tlremove(struct thread_list * list)
+{
     struct thread * thr;
 
     thr = list->head;
@@ -753,16 +820,21 @@ struct thread * tlremove(struct thread_list * list) {
 
 // Appends elements of l1 to the end of l0 and clears l1.
 
-void tlappend(struct thread_list * l0, struct thread_list * l1) {
-    if (l0->head != NULL) {
+void tlappend(struct thread_list * l0, struct thread_list * l1)
+{
+    if (l0->head != NULL)
+    {
         assert(l0->tail != NULL);
 
-        if (l1->head != NULL) {
+        if (l1->head != NULL)
+        {
             assert(l1->tail != NULL);
             l0->tail->list_next = l1->head;
             l0->tail = l1->tail;
         }
-    } else {
+    }
+    else
+    {
         assert(l0->tail == NULL);
         l0->head = l1->head;
         l0->tail = l1->tail;
@@ -772,13 +844,15 @@ void tlappend(struct thread_list * l0, struct thread_list * l1) {
     l1->tail = NULL;
 }
 
-void idle_thread_func(void) {
+void idle_thread_func(void)
+{
     // The idle thread sleeps using wfi if the ready list is empty. Note that we
     // need to disable interrupts before checking if the thread list is empty to
     // avoid a race condition where an ISR marks a thread ready to run between
     // the call to tlempty() and the wfi instruction.
 
-    for (;;) {
+    for (;;)
+    {
         // If there are runnable threads, yield to them.
         while (!tlempty(&ready_list))
             thread_yield();

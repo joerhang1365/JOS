@@ -45,10 +45,7 @@ static void fork_func(struct condition * forked, struct trap_frame * tfr);
 //
 
 static struct process main_proc;
-
-static struct process * proctab[NPROC] = {
-    &main_proc
-};
+static struct process * proctab[NPROC] = { &main_proc };
 
 // EXPORTED GLOBAL VARIABLES
 //
@@ -58,7 +55,8 @@ char procmgr_initialized = 0;
 // EXPORTED FUNCTION DEFINITIONS
 //
 
-void procmgr_init(void) {
+void procmgr_init(void)
+{
     assert (memory_initialized && heap_initialized);
     assert (!procmgr_initialized);
 
@@ -70,7 +68,8 @@ void procmgr_init(void) {
     procmgr_initialized = 1;
 }
 
-int process_exec(struct io * exeio, int argc, char ** argv) {
+int process_exec(struct io * exeio, int argc, char ** argv)
+{
 	struct trap_frame tfr;
 	void (*exe_entry)(struct io *);
 	void * stack;
@@ -87,14 +86,16 @@ int process_exec(struct io * exeio, int argc, char ** argv) {
 	stksz = build_stack(stack, argc, argv);
 	reset_active_mspace();
 	stkvptr = map_range(
-			(uintptr_t)(UMEM_END - PAGE_SIZE),
-			PAGE_SIZE, stack, PTE_R | PTE_W | PTE_U);
+		(uintptr_t)(UMEM_END - PAGE_SIZE),
+		PAGE_SIZE, stack, PTE_R | PTE_W | PTE_U);
 
 	// load elf into new mspace
 	result = elf_load(exeio, (void (**)(void))&exe_entry);
 
 	if (result < 0)
+	{
 		panic("elf did not read correctly :(");
+	}
 
 	// create trap frame
 	// a1 points to the next argv
@@ -117,7 +118,8 @@ int process_exec(struct io * exeio, int argc, char ** argv) {
     return -EMPROC;
 }
 
-int process_fork(const struct trap_frame * tfr) {
+int process_fork(const struct trap_frame * tfr)
+{
 	struct process * proc;
 	struct trap_frame child_tfr;
 	struct condition forked;
@@ -127,22 +129,29 @@ int process_fork(const struct trap_frame * tfr) {
 	trace("%s()", __func__);
 
 	for (pn = 1; pn < NPROC; pn++)
+	{
 		if (proctab[pn] == NULL)
+		{
 			break;
+		}
+	}
 
 	if (pn == NPROC)
+	{
 		return -EMPROC;
+	}
 
 	// set up process thread
 
-	child_tfr = *tfr;
 	condition_init(&forked, "child forked");
-
+	child_tfr = *tfr;
 	child_tid = thread_spawn("child fork", (void (*)(void)) &fork_func,
-			&forked, child_tfr);
+		&forked, child_tfr);
 
 	if (child_tid < 0)
+	{
 		return -EMTHR;
+	}
 
 	// create process memory space
 
@@ -158,8 +167,10 @@ int process_fork(const struct trap_frame * tfr) {
 	proctab[pn] = proc;
 	thread_set_process(child_tid, proc);
 
-	for (fd = 0; fd < PROCESS_IOMAX; fd++) {
-		if (current_process()->iotab[fd] != NULL) {
+	for (fd = 0; fd < PROCESS_IOMAX; fd++)
+	{
+		if (current_process()->iotab[fd] != NULL)
+		{
 			proc->iotab[fd] = ioaddref(current_process()->iotab[fd]);
 		}
 	}
@@ -169,18 +180,24 @@ int process_fork(const struct trap_frame * tfr) {
 	return child_tid;
 }
 
-struct process * current_process(void) {
+struct process * current_process(void)
+{
     return running_thread_process();
 }
 
-void process_exit(void) {
+void process_exit(void)
+{
 	debug("idx=%d process exited\n", current_process()->tid);
 
 	if (current_process()->tid == 0)
+	{
 		panic("main process exited");
+	}
 
-	for (int i = 0; i < PROCESS_IOMAX; i++) {
-		if (current_process()->iotab[i] != NULL) {
+	for (int i = 0; i < PROCESS_IOMAX; i++)
+	{
+		if (current_process()->iotab[i] != NULL)
+		{
 			ioclose(current_process()->iotab[i]);
 		}
 	}
@@ -194,7 +211,8 @@ void process_exit(void) {
 // INTERNAL FUNCTION DEFINITIONS
 //
 
-int build_stack(void * stack, int argc, char ** argv) {
+int build_stack(void * stack, int argc, char ** argv)
+{
     size_t stksz, argsz;
     uintptr_t * newargv;
     char * p;
@@ -205,16 +223,21 @@ int build_stack(void * stack, int argc, char ** argv) {
     // is a NULL pointer).
 
     if (PAGE_SIZE / sizeof(char*) - 1 < argc)
+	{
         return -ENOMEM;
+	}
 
-    stksz = (argc+1) * sizeof(char*);
+    stksz = (argc + 1) * sizeof(char*);
 
     // Add the sizes of the null-terminated strings that argv[] points to.
 
-    for (i = 0; i < argc; i++) {
-        argsz = strlen(argv[i])+1;
+    for (i = 0; i < argc; i++)
+	{
+        argsz = strlen(argv[i]) + 1;
         if (PAGE_SIZE - stksz < argsz)
+		{
             return -ENOMEM;
+		}
         stksz += argsz;
     }
 
@@ -232,20 +255,23 @@ int build_stack(void * stack, int argc, char ** argv) {
     // stack is given by `p - newargv'.
 
     newargv = stack + PAGE_SIZE - stksz;
-    p = (char*)(newargv+argc+1);
+    p = (char*)(newargv + argc + 1);
 
-    for (i = 0; i < argc; i++) {
+    for (i = 0; i < argc; i++)
+	{
         newargv[i] = (UMEM_END_VMA - PAGE_SIZE) + ((void*)p - (void*)stack);
-        argsz = strlen(argv[i])+1;
+        argsz = strlen(argv[i]) + 1;
         memcpy(p, argv[i], argsz);
         p += argsz;
     }
 
     newargv[argc] = 0;
+
     return stksz;
 }
 
-void fork_func(struct condition * forked, struct trap_frame * tfr) {
+void fork_func(struct condition * forked, struct trap_frame * tfr)
+{
 	tfr->a0 = 0;
 	tfr->tp = current_thread();
 

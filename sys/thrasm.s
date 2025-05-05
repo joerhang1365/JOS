@@ -55,9 +55,9 @@ _thread_swtch:
         sd      ra, 12*8(tp)
         sd      sp, 13*8(tp)
 
-        mv      t0, tp #add this line
+        mv      t0, tp
         mv      tp, a0
-        mv      a0, t0 #add this line
+        mv      a0, t0
 
         ld      sp, 13*8(tp)
         ld      ra, 12*8(tp)

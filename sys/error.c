@@ -7,8 +7,10 @@
 #include "error.h"
 #include <stddef.h>
 
-extern const char * error_name(int code) {
-    static const char * const error_names[] = {
+extern const char * error_name(int code)
+{
+    static const char * const error_names[] =
+    {
         [0] = "(success)",
         [EINVAL] = "EINVAL",
         [EBUSY] = "EBUSY",
@@ -31,12 +33,18 @@ extern const char * error_name(int code) {
     const char * name;
 
     if (code < 0)
+    {
         code = -code;
-    
+    }
+
     if (code < sizeof(error_names)/sizeof(error_names[0]))
+    {
         name = error_names[code];
+    }
     else
+    {
         name = NULL;
-    
+    }
+
     return name ? name : "(unknown)";
 }
