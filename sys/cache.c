@@ -107,9 +107,7 @@ int cache_get_block(struct cache * cache, unsigned long long pos, void ** pptr)
     // check if block is already in cache
     for (uint32_t i = 0; i < CACHE_CAPACITY; i++)
     {
-        if (CACHE_ISVALID(cache->table[i]) &&
-            cache->table[i].block_id == block_id)
-
+        if (cache->table[i].block_id == block_id && CACHE_ISVALID(cache->table[i]))
         {
             debug("already in cache");
             lock_acquire(&cache_locks[i]);
@@ -118,7 +116,7 @@ int cache_get_block(struct cache * cache, unsigned long long pos, void ** pptr)
             cache->last_read_idx = i;
             *pptr = cache_data[i];
 
-            return 0;
+            return i;
         }
     }
 
@@ -156,13 +154,13 @@ int cache_get_block(struct cache * cache, unsigned long long pos, void ** pptr)
     cache->last_read_idx = idx;
     *pptr = cache_data[idx];
 
-    return 0;
+    return idx;
 }
 
 int cache_readat (
         struct cache * cache, unsigned long long pos, void * buf, long bufsz)
 {
-    uint8_t * block;
+    uint8_t * pblk;
     uint32_t block_pos;
     uint32_t block_off;
     uint32_t idx;
@@ -177,18 +175,21 @@ int cache_readat (
         bufsz = CACHE_BLKSZ - block_off;
     }
 
-    cache_get_block(cache, block_pos, (void **)&block);
-    memcpy(buf, block + block_off, bufsz);
-    idx = ((uint64_t)block - (uint64_t)&cache_data) / CACHE_BLKSZ;
+    idx = cache_get_block(cache, block_pos, (void **)&pblk);
+    memcpy(buf, pblk + block_off, bufsz);
     cache_release_block (
         cache, cache_data[idx], CACHE_ISDIRTY(cache->table[idx]));
 
     return bufsz;
 }
 
-int cache_writeat(struct cache * cache, unsigned long long pos, const void * buf, long len)
+int cache_writeat (
+        struct cache * cache,
+        unsigned long long pos,
+        const void * buf,
+        long len)
 {
-    uint8_t * block;
+    uint8_t * pblk;
     uint32_t block_pos;
     uint32_t block_off;
     uint32_t idx;
@@ -203,16 +204,14 @@ int cache_writeat(struct cache * cache, unsigned long long pos, const void * buf
         len = CACHE_BLKSZ - block_off;
     }
 
-    cache_get_block(cache, block_pos, (void **)&block);
-    memcpy(block + block_off, buf, len);
-    idx = ((uint64_t)block - (uint64_t)&cache_data) / CACHE_BLKSZ;
+    idx = cache_get_block(cache, block_pos, (void **)&pblk);
+    memcpy(pblk + block_off, buf, len);
     cache->table[idx].flags |= CACHE_DIRTY;
-    cache_release_block(cache, cache_data[idx], CACHE_ISDIRTY(cache->table[idx]));
+    cache_release_block(cache, cache_data[idx],
+        CACHE_ISDIRTY(cache->table[idx]));
 
     return len;
 }
-
-// TODO: rewrite this function to just take cache block id
 
 void cache_release_block(struct cache * cache, void * pblk, int dirty)
 {
@@ -225,7 +224,7 @@ void cache_release_block(struct cache * cache, void * pblk, int dirty)
     block_id = cache->table[idx].block_id;
     debug("release_block: idx=%d, block_id=%d", idx, block_id);
 
-    if(CACHE_ISDIRTY(cache->table[idx]))
+    if(dirty)
     {
         iowriteat(backend, block_id * CACHE_BLKSZ, pblk, CACHE_BLKSZ);
         cache->table[idx].flags &= ~CACHE_DIRTY;

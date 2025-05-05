@@ -34,32 +34,35 @@
 // INTERNAL TYPE DEFINITIONS
 //
 
+uint32_t ktfs_get_new_block();
+int ktfs_release_block(uint32_t block_id);
+int ktfs_get_new_inode(uint16_t * inode_num);
+int ktfs_release_inode(uint16_t inode_id);
+long ktfs_writeat(struct io* io, unsigned long long pos, const void * buf, long len);
 
-struct file_system {
+struct file_system
+{
     struct ktfs_superblock superblock;
-    //uint8_t padding[BLOCK_SIZE - sizeof(struct ktfs_superblock)];
-    // struct ktfs_bitmap * bitmaps;
     uint8_t * inode_bitmap;
-    // struct ktfs_data_block* data_blocks;
 };
 
-struct ktfs_file {
+struct ktfs_file
+{
     struct io io;
-    size_t file_size;
     struct ktfs_dir_entry entry;
+    size_t file_size;
     int in_use;
+
     struct ktfs_file * next;
 };
 
 // INTERNAL GLOBAL VARIABLES
 //
 
-struct file_system * fs; // global file system
 struct io * backend;
+struct file_system * fs; // global file system
 
 struct ktfs_file * open_files;
-
-
 
 static struct cache * cache;
 
@@ -70,12 +73,23 @@ static int ktfs_mount(struct io * io);
 
 static int ktfs_open(const char * name, struct io ** ioptr);
 static void ktfs_close(struct io* io);
-static long ktfs_readat(struct io* io, unsigned long long pos, void * buf, long len);
+static long ktfs_readat (
+        struct io* io,
+        unsigned long long pos,
+        void * buf,
+        long len);
+long ktfs_writeat (
+        struct io* io,
+        unsigned long long pos,
+        const void * buf,
+        long len);
 static int ktfs_cntl(struct io *io, int cmd, void *arg);
-
-//static int ktfs_getblksz(struct ktfs_file *fd);
-//static int ktfs_getend(struct ktfs_file *fd, void *arg);
 static int ktfs_flush(void);
+
+unsigned int ktfs_get_new_block();
+int ktfs_release_block(uint32_t block_id);
+int ktfs_get_new_inode(uint16_t * inode_num);
+int ktfs_release_inode(uint16_t inode_id);
 
 static int read_data_blockat(
         struct ktfs_inode * inode,
@@ -83,7 +97,6 @@ static int read_data_blockat(
         uint32_t dblock_offset,
         void * buf,
         long len);
-
 static int write_data_blockat(
         struct ktfs_inode * inode,
         uint32_t dblock_id,
@@ -91,7 +104,8 @@ static int write_data_blockat(
         const void * buf,
         long len);
 
-//static int cache_rw_at(struct cache * cache, int rw, unsigned long long pos, void * buf, long bufsz);
+static int set_inode_bitmap(int inode_num);
+static int init_inode_bitmap();
 
 
 // FUNCTION ALIASES
@@ -112,527 +126,562 @@ int fscreate(const char * name)
 int fsdelete(const char * name)
     __attribute__ ((alias("ktfs_delete")));
 
-// EXPORTED FUNCTION DEFINITIONS
+// INTERNAL FUNCTION DEFINITIONS
 //
 
-int set_inode_bitmap(int inode_num) {
+int set_inode_bitmap(int inode_num)
+{
     uint8_t buf;
-    int byte_loc = inode_num / 8;
-    int bit_loc = inode_num % 8;
-    memcpy(&buf, fs->inode_bitmap+byte_loc, 1);
-    buf = buf | (1 << bit_loc);
-    memcpy(fs->inode_bitmap+byte_loc, &buf, 1);
+    int byte_pos = inode_num / 8;
+    int bit_pos = inode_num % 8;
+
+    memcpy(&buf, fs->inode_bitmap + byte_pos, 1);
+
+    buf = buf | (1 << bit_pos);
+
+    memcpy(fs->inode_bitmap + byte_pos, &buf, 1);
+
     return 0;
-  }
+}
 
-
-int init_inode_bitmap() {
-
+int init_inode_bitmap()
+{
     struct ktfs_inode root_inode;
-    unsigned long long pos = fs->superblock.root_directory_inode * KTFS_INOSZ + (1 + fs->superblock.bitmap_block_count) * KTFS_BLKSZ;
-    cache_readat(cache, pos, &root_inode, KTFS_INOSZ);
-
-    uint32_t num_inodes_per_block = KTFS_BLKSZ / KTFS_INOSZ;
-    fs->inode_bitmap = kcalloc(1, (fs->superblock.inode_block_count * num_inodes_per_block / 8) + 1); //1 byte can represent 8 inodes, so we divide by 8 and add 1 byte incase the inode count isn't a multiple of 8
-    uint32_t root_dir_inode_blk_cnt;
-
-    uint32_t num_inodes_in_use = root_inode.size / KTFS_DENSZ;
-    int inode_cnt = 0;
     struct ktfs_dir_entry dentry;
+    uint32_t root_dir_inode_blk_cnt;
+    uint32_t pos;
 
-    // set the root_dirctory_inode bit in the bitmap
+    uint32_t num_inodes_per_block;
+    uint32_t num_inodes_in_use;
+
+    num_inodes_per_block = KTFS_BLKSZ / KTFS_INOSZ;
+
+    fs->inode_bitmap = kcalloc(1, (fs->superblock.inode_block_count * num_inodes_per_block / 8) + 1);
     set_inode_bitmap(fs->superblock.root_directory_inode);
 
-    root_dir_inode_blk_cnt = root_inode.size / KTFS_BLKSZ; //see how many exisiting inode blocks you need to loop through
+    pos = fs->superblock.root_directory_inode * KTFS_INOSZ;
+    pos += (1 + fs->superblock.bitmap_block_count) * KTFS_BLKSZ;
+    cache_readat(cache, pos, &root_inode, KTFS_INOSZ);
+    root_dir_inode_blk_cnt = root_inode.size / KTFS_BLKSZ;
+    num_inodes_in_use = root_inode.size / KTFS_DENSZ;
 
-    if(root_inode.size % KTFS_BLKSZ != 0)
+    if (root_inode.size % KTFS_BLKSZ != 0)
+    {
         root_dir_inode_blk_cnt++;
+    }
 
-    // read out all the existing dentries and set the correponding bit in inode_bitmap
-    for(int i = 0; i < root_dir_inode_blk_cnt; i++){
-        for(int j = 0; j < (KTFS_BLKSZ / KTFS_DENSZ); j++){
-            if (inode_cnt < num_inodes_in_use) {
+    // read out all the existing dentries and set the correponding
+    // bit in inode_bitmap
+
+    uint32_t inode_cnt = 0;
+
+    for (int i = 0; i < root_dir_inode_blk_cnt; i++)
+    {
+        for (int j = 0; j < (KTFS_BLKSZ / KTFS_DENSZ); j++)
+        {
+            if (inode_cnt < num_inodes_in_use)
+            {
                 read_data_blockat(&root_inode, i, j * KTFS_DENSZ, &dentry, KTFS_DENSZ);
                 set_inode_bitmap(dentry.inode);
                 inode_cnt++;
             }
             else
+            {
                 return 0;
+            }
         }
-
     }
 
     return 0;
-
 }
-
 
 int ktfs_mount(struct io * io)
 {
-    long rcnt;
+    uint64_t read_bytes;
+    char buf[512]; // FIXME: scary
 
-    //assert(ioctl(io, IOCTL_GETBLKSZ, NULL) == 512);
-
-    fs = kcalloc(1, sizeof(struct file_system));    //create the file system device
-
-    //rcnt = iofill(io, &fs->superblock, sizeof(struct ktfs_superblock)); //fill in the super block from the backend device
-    debug("superblock size: %d\n", sizeof(struct ktfs_superblock));
-    char buf[512];
-    rcnt = ioreadat(io, 0, &buf, 512);
-
+    fs = kcalloc(1, sizeof(struct file_system));
+    read_bytes = ioreadat(io, 0, &buf, 512);
     memcpy(&fs->superblock, &buf, 14);
 
-    //kprintf("Inode Block count: %d \n", fs->superblock.inode_block_count);
-    if(rcnt < 0)
-        return rcnt;
+    if (read_bytes < 0)
+    {
+        return read_bytes;
+    }
 
-    /*
-    if(rcnt != sizeof(struct ktfs_superblock)) //iofill should copy the size of superblock to the superblock struct. If it didn't, then the struct isn't properly filled
-        return -EIO;
-    */
-
-    // fs->bitmaps = kcalloc(fs->superblock.bitmap_block_count, sizeof(struct ktfs_bitmap));   //create an array of the size of bitmap block count
-
-
-    //???need to fill bitmap
-    // fs->inodes = kcalloc(fs->superblock.inode_block_count, sizeof(struct ktfs_inode));  //create an array of size of inode block count
-
-    // fs->data_blocks = kcalloc(fs->superblock.block_count, sizeof(struct ktfs_data_block));  //???create an array of size of block_count
-    // if(fs->bitmaps==NULL)
-    //     return -ENOMEM;
-
-    // if(fs->inodes!=NULL)
-    //     return -ENOMEM;
-    // if(fs->data_blocks!=NULL)
-    //     return -ENOMEM;
-
-    //use ioreadat to fill bitmat, inode etc
-
-
-    backend = ioaddref(io); //save the backend io for future use
+    backend = ioaddref(io);
     create_cache(backend, &cache);
-
-    init_inode_bitmap(); //init the inode biut map
-    open_files = NULL; //initalize the open files list
-
+    init_inode_bitmap();
+    open_files = NULL;
 
     return 0;
 }
 
-// INTERNAL FUNCTION DEFINITIONS
-
-
-void insert_file_to_list(struct ktfs_file * fs_file){
+void insert_file_to_list(struct ktfs_file * fs_file)
+{
     fs_file->next = open_files;
     open_files = fs_file;
 }
 
-void delete_file_from_list(const char * name){
-
+void delete_file_from_list(const char * name)
+{
     struct ktfs_file *curr = open_files;
     struct ktfs_file *prev = NULL;
-    while (curr != NULL) {
-        if(strcmp(curr->entry.name, name) == 0){
+
+    while (curr != NULL)
+    {
+        if (strcmp(curr->entry.name, name) == 0)
+        {
             if(prev != NULL)
+            {
                 prev->next = curr->next;
-            else{
+            }
+            else
+            {
                 open_files = curr->next;
             }
+
             kfree(curr);
-            //ktfs_close(&curr->io);
             return;
         }
-        else{
+        else
+        {
             prev = curr;
             curr = curr->next;
         }
-
     }
-
-
 }
 
-
-
-uint32_t ktfs_get_new_block() {
+uint32_t ktfs_get_new_block()
+{
     unsigned long long pos;
-    uint8_t buf;
+    uint8_t byte;
 
-    for (int i = 0; i < fs->superblock.bitmap_block_count*KTFS_BLKSZ; i++) {
-        //read 1-byte of bitmap a time
+    for (uint32_t i = 0; i < fs->superblock.bitmap_block_count * KTFS_BLKSZ; i++)
+    {
+        // read 1 byte of bitmap a time
         pos = 1 * KTFS_BLKSZ + i;
-        cache_readat(cache, pos, &buf, 1);
-        for (int j = 0; j < 8; j++)
-            if (((buf >> j) & 0x1) == 0) { //Right shift to check is LSB is 0
-                // set the bit
-                buf = buf | (1 << j);   //set the bit in the bit map
-                cache_writeat(cache, pos, &buf, 1);
-                return (i * 8) + j; //return the id of the block
+        cache_readat(cache, pos, &byte, 1);
+
+        for (uint32_t j = 0; j < 8; j++)
+        {
+            if (((byte >> j) & 0x1) == 0)
+            {
+                byte |=  (1 << j);
+                cache_writeat(cache, pos, &byte, 1);
+
+                // return id of block
+                return (i * 8) + j;
             }
-
+        }
     }
-    return 0;
 
+    return 0;
 }
 
 
-int ktfs_release_block(uint32_t block_id) {
-    unsigned long long byte_pos;
-    int bit_pos;
-    unsigned long long pos;
-    uint8_t buf;
+int ktfs_release_block(uint32_t block_id)
+{
+    uint32_t pos;
+    uint32_t byte_pos;
+    uint32_t bit_pos;
+    uint8_t byte;
 
     byte_pos = block_id / 8;
     bit_pos = block_id % 8;
-    pos = byte_pos + 1*KTFS_BLKSZ;
-    cache_readat(cache, pos, &buf, 1);   //read 8 bits from the bit map block
-    // clear the bit
-    buf = buf & ~(1 << bit_pos);    //set the bit to 0 at bit_pos
-    cache_writeat(cache, pos, &buf, 1);   //write the updated bit map back
+    pos = byte_pos + 1 * KTFS_BLKSZ;
+
+    cache_readat(cache, pos, &byte, 1);
+
+    byte = byte & ~(1 << bit_pos); // clear
+
+    cache_writeat(cache, pos, &byte, 1);
 
     return 0;
 }
 
-int release_data_block(struct ktfs_inode * inode, uint32_t dblock_id){
-    unsigned long long pos;
-    unsigned long long start_pos_dblock = 1 + fs->superblock.bitmap_block_count + fs->superblock.inode_block_count;
+int release_data_block(struct ktfs_inode * inode, uint32_t dblock_id)
+{
+    uint64_t pos;
+    uint64_t start_pos_dblock;
     uint32_t adj_dblock_id;
 
-    uint32_t data_block_idx1; //used to contain indirect datablock indexes in order to find the needed data block
+    uint32_t data_block_idx1;
     uint32_t data_block_idx2;
-    uint32_t dindirect_instance; //there are 2 dindirects in inode
-
+    uint32_t dindirect_instance;
 
     uint32_t dindirect_offset1;
     uint32_t dindirect_offset2;
 
-    if(dblock_id < 3){  //if the dblock_id is less than 3, then it is a direct block
-        ktfs_release_block (inode->block[dblock_id]);
+    start_pos_dblock = 1 + fs->superblock.bitmap_block_count;
+    start_pos_dblock += fs->superblock.inode_block_count;
+
+    // if the dblock_id is less than 3, then it is a direct block
+    if (dblock_id < 3)
+    {
+        ktfs_release_block(inode->block[dblock_id]);
         return 0;
     }
-    else if((dblock_id - 3) < 128){ //128 is the number of data blocks for indirect reference.
-        if (dblock_id == 3) // release inderct data block
+    // 128 is the number of data blocks for indirect reference.
+    else if ((dblock_id - 3) < 128)
+    {
+        // release inderct data block
+        if (dblock_id == 3)
+        {
             ktfs_release_block (inode->indirect);
+        }
 
-        pos = (start_pos_dblock + inode->indirect) * KTFS_BLKSZ + (dblock_id - 3) * KTFS_DATA_BLOCK_PTR_SIZE; //read the pointer of the block I need in the indirect data block
+        // read the pointer of the block I need in the indirect data block
+
+        pos = (start_pos_dblock + inode->indirect) * KTFS_BLKSZ;
+        pos += (dblock_id - 3) * KTFS_DATA_BLOCK_PTR_SIZE;
         cache_readat(cache, pos, &data_block_idx1, KTFS_DATA_BLOCK_PTR_SIZE);
-        ktfs_release_block (data_block_idx1);
+        ktfs_release_block(data_block_idx1);
+
         return 0;
     }
-    else{
-        if((dblock_id - 131) < (128 * 128)){    //128*128 is the number of data blocks in each double indirect instance. 131 is the number of data blocks from direct and indirect data blocks
-            dindirect_instance = 0; //0 as it is the first instance of the double indirect
-            adj_dblock_id = dblock_id - 131;    //get the adjusted datablock id of the double indirect data blocks. This is used to calculate the pos
+    else
+    {
+        // 128 * 128 is the number of data blocks in each double indirect
+        // instance. 131 is the number of data blocks from direct and indirect
+        // data blocks
+
+        if((dblock_id - 131) < (128 * 128))
+        {
+            // 0 as it is the first instance of the double indirect
+            dindirect_instance = 0;
+            // get the adjusted datablock id of the double indirect data blocks
+            // this is used to calculate the pos
+            adj_dblock_id = dblock_id - 131;
         }
-        else{
+        else
+        {
             dindirect_instance = 1;
-            adj_dblock_id = dblock_id - 131 - 128 * 128; //get the adjusted data block if the id is a part of the 2nd double indirect reference.
+            adj_dblock_id = dblock_id - 131 - 128 * 128;
         }
 
-        dindirect_offset1 = adj_dblock_id / 128; //offset in first indirect block
-        dindirect_offset2 = adj_dblock_id % 128; //offset in second indrect block
+        dindirect_offset1 = adj_dblock_id / 128;
+        dindirect_offset2 = adj_dblock_id % 128;
 
-        if (adj_dblock_id == 0) //if release the very first datablock, also need to release the first indirect data block
-          ktfs_release_block (inode->dindirect[dindirect_instance]);
+        if (adj_dblock_id == 0)
+        {
+            ktfs_release_block(inode->dindirect[dindirect_instance]);
+        }
 
-        pos = (start_pos_dblock + inode->dindirect[dindirect_instance]) * KTFS_BLKSZ + dindirect_offset1 * KTFS_DATA_BLOCK_PTR_SIZE; //position of the double indirect block.
+        pos = (start_pos_dblock + inode->dindirect[dindirect_instance]) * KTFS_BLKSZ;
+        pos += dindirect_offset1 * KTFS_DATA_BLOCK_PTR_SIZE;
         cache_readat(cache, pos, &data_block_idx1, KTFS_DATA_BLOCK_PTR_SIZE);
-        if (dindirect_offset2 == 0) {//if release the first (0th) entry of the second indirect block, also release the second indirect data block
-          ktfs_release_block (data_block_idx1);
+
+        // if release the first (0th) entry of the second indirect block,
+        // also release the second indirect data block
+
+        if (dindirect_offset2 == 0)
+        {
+            ktfs_release_block(data_block_idx1);
         }
 
-        pos = (start_pos_dblock + data_block_idx1) * KTFS_BLKSZ + dindirect_offset2 * KTFS_DATA_BLOCK_PTR_SIZE; //calculate the position of the direct pointer in the indirect pointer
+        pos = (start_pos_dblock + data_block_idx1) * KTFS_BLKSZ;
+        pos += dindirect_offset2 * KTFS_DATA_BLOCK_PTR_SIZE;
         cache_readat(cache, pos, &data_block_idx2, KTFS_DATA_BLOCK_PTR_SIZE);
-        ktfs_release_block (data_block_idx2);
+        ktfs_release_block(data_block_idx2);
+
         return 0;
     }
 }
 
+int ktfs_get_new_inode(uint16_t * inode_num)
+{
+    uint32_t num_inodes_per_block;
+    uint32_t total_inode_count;
+    uint8_t byte;
 
-// int cache_rw_at(int rw, unsigned long long pos, void * buf, long bufsz) {
-//     uint8_t * block;
-//     uint32_t block_pos = pos / KTFS_BLKSZ;
-//     block_pos *= KTFS_BLKSZ;
-//     uint32_t block_off = pos % KTFS_BLKSZ;
+    num_inodes_per_block = KTFS_BLKSZ / KTFS_INOSZ;
+    total_inode_count = fs->superblock.inode_block_count * num_inodes_per_block;
 
-//     cache_get_block(cache, block_pos, (void **) &block);
-//     memcpy(buf, block + block_off, bufsz);
+    for (uint32_t i = 0; i < total_inode_count / 8; i++)
+    {
+        memcpy(&byte, fs->inode_bitmap + i, 1);
 
-//     return bufsz;
-// }
-
-// int cache_rw_at(int rw, unsigned long long pos, void * buf, long bufsz) {
-//     uint8_t * block;
-
-//     uint32_t block_pos = pos / KTFS_BLKSZ;
-//     block_pos *= KTFS_BLKSZ;
-//     uint32_t block_off = pos % KTFS_BLKSZ;
-//     int cache_idx;
-
-//     cache_get_block(cache, block_pos, (void **) &block); //FIXME in the cache_get_block we need to return
-//     //cache_idx = cache->last_r_idx; //FIXME invalid use of undefined type 'struct cache'
-//     if (rw) { // write to cache
-//         memcpy(block + block_off, buf, bufsz);
-//         //cache->table[cache_idx].dirty = 1; //FIXME invalid use of undefined type 'struct cache'
-//     }
-//     else  // read from cache
-//      memcpy(buf, block + block_off, bufsz);
-
-//     return bufsz;
-// }
-
-int ktfs_get_new_inode(uint16_t * inode_num) {
-    uint32_t num_inodes_per_block = KTFS_BLKSZ/KTFS_INOSZ;
-    uint32_t total_inode_count = fs->superblock.inode_block_count * num_inodes_per_block;
-    uint8_t buf;
-    for (int i = 0; i < total_inode_count / 8; i++) {
-        memcpy(&buf, fs->inode_bitmap + i, 1);
         for (int j = 0; j < 8; j++)
-            if (((buf >> j) & 0x1) == 0) {
+        {
+            if (((byte >> j) & 0x1) == 0)
+            {
                 // set the bit
-                buf = buf | (1 << j);
-                memcpy(fs->inode_bitmap+i, &buf, 1);
-                *inode_num = i*8 + j;
+                byte |= (1 << j);
+                memcpy(fs->inode_bitmap + i, &byte, 1);
+                *inode_num = i * 8 + j;
+
                 return 0;
             }
+        }
     }
+
     return -ENOINODEBLKS;
 }
 
-int ktfs_release_inode(uint16_t inode_id) {
-    //uint32_t num_inodes_per_block = KTFS_BLKSZ/KTFS_INOSZ;
-    //uint32_t total_inode_count = fs->superblock.inode_block_count * num_inodes_per_block;
-    uint8_t buf;
+int ktfs_release_inode(uint16_t inode_id)
+{
+    uint32_t inode_pos = inode_id / 8;
+    uint32_t inode_off = inode_id % 8;
+    uint8_t byte;
 
-    int inode_pos = inode_id / 8;
-    int inode_off = inode_id % 8;
-    memcpy(&buf, fs->inode_bitmap+inode_pos, 1);
-    buf = buf & ~(1 << inode_off);
-    memcpy(fs->inode_bitmap+inode_pos, &buf, 1);
+    memcpy(&byte, fs->inode_bitmap+inode_pos, 1);
+
+    byte = byte & ~(1 << inode_off);
+
+    memcpy(fs->inode_bitmap+inode_pos, &byte, 1);
     return 0;
 }
 
-/*
-int rw_data_block_at(rw, struct ktfs_inode * inode, uint32_t dblock_id, uint32_t dblock_offset, void * buf, long len)
+// Helper function for open and readat. It takes a provided data block id and
+// a offset and finds the proper data block and reads the data block up to len.
+// This function allows callers to treat the data_blocks as one contiguous block
+// allower the caller to not worry about offsets and entering indirect data
+// blocks to find blocks etc.
 
-Input: struct ktfs_inode * inode, uint32_t dblock_id, uint32_t dblock_offset, void * buf, long len
-
-Output: 0 for success
-
-Description: Helper function for open and readat. It takes a provided data block id and a offset and finds the proper data block and
-reads the data block up to len. This function allows callers to treat the data_blocks as one contiguous block allower the caller
-to not worry about offsets and entering indirect data blocks to find blocks etc.
-
-Sideeffects: None
-
-*/
-int read_data_blockat(struct ktfs_inode * inode, uint32_t dblock_id, uint32_t dblock_offset, void * buf, long len){
-    unsigned long long pos;
-    unsigned long long start_pos_dblock = 1 + fs->superblock.bitmap_block_count + fs->superblock.inode_block_count;
+int read_data_blockat (
+        struct ktfs_inode * inode,
+        uint32_t dblock_id,
+        uint32_t dblock_offset,
+        void * buf,
+        long len)
+{
+    uint64_t pos;
+    uint64_t start_pos_dblock;
     uint32_t adj_dblock_id;
 
-    uint32_t data_block_idx1; //used to contain indirect datablock indexes in order to find the needed data block
+    uint32_t data_block_idx1;
     uint32_t data_block_idx2;
-    uint32_t dindirect_instance; //there are 2 dindirects in inode
-
+    uint32_t dindirect_instance;
 
     uint32_t dindirect_offset1;
     uint32_t dindirect_offset2;
-    if(dblock_id < 3){  //if the dblock_id is less than 3, then it is a direct block
-        pos = (start_pos_dblock + inode->block[dblock_id]) * KTFS_BLKSZ + dblock_offset;    //calculate the dblock position
+
+    start_pos_dblock = 1 + fs->superblock.bitmap_block_count;
+    start_pos_dblock += fs->superblock.inode_block_count;
+
+    if (dblock_id < 3)
+    {
+        pos = (start_pos_dblock + inode->block[dblock_id]) * KTFS_BLKSZ;
+        pos += dblock_offset;
         cache_readat(cache, pos, buf, len);
-        //ioreadat(backend, pos, buf, len);   //read the data and copy it to buf
         return 0;
     }
-    else if((dblock_id - 3) < 128){ //128 is the number of data blocks for indirect reference.
-        pos = (start_pos_dblock + inode->indirect) * KTFS_BLKSZ + (dblock_id - 3) * KTFS_DATA_BLOCK_PTR_SIZE; //read the pointer of the block I need in the indirect data block
-        cache_readat(cache, pos, &data_block_idx1, KTFS_DATA_BLOCK_PTR_SIZE); //always 0 because it is used to read indirect
-        //ioreadat(backend, pos, &data_block_idx1, KTFS_DATA_BLOCK_PTR_SIZE);  //read the indirect data block index
-
-        pos = (start_pos_dblock + data_block_idx1) * KTFS_BLKSZ + dblock_offset; //use the indirect datablock index and the offset to calculate the actual position of the datablock for the indirect block
-        cache_readat(cache, pos, buf, len);
-        //ioreadat(backend, pos, buf, len);   //read the data block
-        return 0;
-    }
-    else{
-        if((dblock_id - 131) < (128 * 128)){    //128*128 is the number of data blocks in each double indirect instance. 131 is the number of data blocks from direct and indirect data blocks
-            dindirect_instance = 0; //0 as it is the first instance of the double indirect
-            adj_dblock_id = dblock_id - 131;    //get the adjusted datablock id of the double indirect data blocks. This is used to calculate the pos
-        }
-        else{
-            dindirect_instance = 1;
-            adj_dblock_id = dblock_id - 131 - 128 * 128; //get the adjusted data block if the id is a part of the 2nd double indirect reference.
-        }
-
-
-        dindirect_offset1 = adj_dblock_id / 128; //select offset of indirect pointer in the double indirect block
-
-        pos = (start_pos_dblock + inode->dindirect[dindirect_instance]) * KTFS_BLKSZ + dindirect_offset1 * KTFS_DATA_BLOCK_PTR_SIZE; //position of the double indirect block.
-
+    else if ((dblock_id - 3) < 128)
+    {
+        pos = (start_pos_dblock + inode->indirect) * KTFS_BLKSZ;
+        pos += (dblock_id - 3) * KTFS_DATA_BLOCK_PTR_SIZE;
         cache_readat(cache, pos, &data_block_idx1, KTFS_DATA_BLOCK_PTR_SIZE);
-        //ioreadat(backend, pos, &data_block_idx1, KTFS_DATA_BLOCK_PTR_SIZE);  //read the pointer of the indirect block inside of the double indirect block
 
-        dindirect_offset2 = adj_dblock_id % 128; //the offset of direct pointer in the indirect block
-
-        pos = (start_pos_dblock + data_block_idx1) * KTFS_BLKSZ + dindirect_offset2 * KTFS_DATA_BLOCK_PTR_SIZE; //calculate the position of the direct pointer in the indirect pointer
-
-        cache_readat(cache, pos, &data_block_idx2, KTFS_DATA_BLOCK_PTR_SIZE);
-        //ioreadat(backend, pos, &data_block_idx2, KTFS_DATA_BLOCK_PTR_SIZE); //read the direct data block pointer
-
-
-        pos = (start_pos_dblock + data_block_idx2) * KTFS_BLKSZ + dblock_offset;    //calculate the position of the data block
-
+        pos = (start_pos_dblock + data_block_idx1) * KTFS_BLKSZ + dblock_offset;
         cache_readat(cache, pos, buf, len);
-        //ioreadat(backend, pos, buf, len); //read the data block to the buf
+        return 0;
+    }
+    else
+    {
+        if ((dblock_id - 131) < (128 * 128))
+        {
+            dindirect_instance = 0;
+            adj_dblock_id = dblock_id - 131;
+        }
+        else
+        {
+            dindirect_instance = 1;
+            adj_dblock_id = dblock_id - 131 - 128 * 128;
+        }
+
+        dindirect_offset1 = adj_dblock_id / 128;
+        pos = (start_pos_dblock + inode->dindirect[dindirect_instance]) * KTFS_BLKSZ;
+        pos += dindirect_offset1 * KTFS_DATA_BLOCK_PTR_SIZE;
+        cache_readat(cache, pos, &data_block_idx1, KTFS_DATA_BLOCK_PTR_SIZE);
+
+        dindirect_offset2 = adj_dblock_id % 128;
+        pos = (start_pos_dblock + data_block_idx1) * KTFS_BLKSZ;
+        pos += dindirect_offset2 * KTFS_DATA_BLOCK_PTR_SIZE;
+        cache_readat(cache, pos, &data_block_idx2, KTFS_DATA_BLOCK_PTR_SIZE);
+
+        pos = (start_pos_dblock + data_block_idx2) * KTFS_BLKSZ + dblock_offset;
+        cache_readat(cache, pos, buf, len);
+
         return 0;
     }
 }
 
-int write_data_blockat(struct ktfs_inode * inode, uint32_t dblock_id, uint32_t dblock_offset, const void * buf, long len){
-    unsigned long long pos;
-    unsigned long long start_pos_dblock = 1 + fs->superblock.bitmap_block_count + fs->superblock.inode_block_count;
+int write_data_blockat (
+        struct ktfs_inode * inode,
+        uint32_t dblock_id,
+        uint32_t dblock_offset,
+        const void * buf,
+        long len)
+{
+    uint64_t pos;
+    uint64_t start_pos_dblock;
     uint32_t adj_dblock_id;
 
-    uint32_t data_block_idx1; //used to contain indirect datablock indexes in order to find the needed data block
+    uint32_t data_block_idx1;
     uint32_t data_block_idx2;
-    uint32_t dindirect_instance; //there are 2 dindirects in inode
-
+    uint32_t dindirect_instance;
 
     uint32_t dindirect_offset1;
     uint32_t dindirect_offset2;
-    if(dblock_id < 3){  //if the dblock_id is less than 3, then it is a direct block
-        pos = (start_pos_dblock + inode->block[dblock_id]) * KTFS_BLKSZ + dblock_offset;    //calculate the dblock position
+
+    start_pos_dblock = 1 + fs->superblock.bitmap_block_count;
+    start_pos_dblock += fs->superblock.inode_block_count;
+
+    if (dblock_id < 3)
+    {
+        pos = (start_pos_dblock + inode->block[dblock_id]) * KTFS_BLKSZ;
+        pos += dblock_offset;
         cache_writeat(cache, pos, buf, len);
-        //ioreadat(backend, pos, buf, len);   //read the data and copy it to buf
         return 0;
     }
-    else if((dblock_id - 3) < 128){ //128 is the number of data blocks for indirect reference.
-        pos = (start_pos_dblock + inode->indirect) * KTFS_BLKSZ + (dblock_id - 3) * KTFS_DATA_BLOCK_PTR_SIZE; //read the pointer of the block I need in the indirect data block
-        cache_readat(cache, pos, &data_block_idx1, KTFS_DATA_BLOCK_PTR_SIZE); //always 0 because it is used to read indirect
-        //ioreadat(backend, pos, &data_block_idx1, KTFS_DATA_BLOCK_PTR_SIZE);  //read the indirect data block index
-
-        pos = (start_pos_dblock + data_block_idx1) * KTFS_BLKSZ + dblock_offset; //use the indirect datablock index and the offset to calculate the actual position of the datablock for the indirect block
-        cache_writeat(cache, pos, buf, len);
-        //ioreadat(backend, pos, buf, len);   //read the data block
-        return 0;
-    }
-    else{
-        if((dblock_id - 131) < (128 * 128)){    //128*128 is the number of data blocks in each double indirect instance. 131 is the number of data blocks from direct and indirect data blocks
-            dindirect_instance = 0; //0 as it is the first instance of the double indirect
-            adj_dblock_id = dblock_id - 131;    //get the adjusted datablock id of the double indirect data blocks. This is used to calculate the pos
-        }
-        else{
-            dindirect_instance = 1;
-            adj_dblock_id = dblock_id - 131 - 128 * 128; //get the adjusted data block if the id is a part of the 2nd double indirect reference.
-        }
-
-
-        dindirect_offset1 = adj_dblock_id / 128; //select offset of indirect pointer in the double indirect block
-
-        pos = (start_pos_dblock + inode->dindirect[dindirect_instance]) * KTFS_BLKSZ + dindirect_offset1 * KTFS_DATA_BLOCK_PTR_SIZE; //position of the double indirect block.
-
+    else if ((dblock_id - 3) < 128)
+    {
+        pos = (start_pos_dblock + inode->indirect) * KTFS_BLKSZ;
+        pos += (dblock_id - 3) * KTFS_DATA_BLOCK_PTR_SIZE;
         cache_readat(cache, pos, &data_block_idx1, KTFS_DATA_BLOCK_PTR_SIZE);
-        //ioreadat(backend, pos, &data_block_idx1, KTFS_DATA_BLOCK_PTR_SIZE);  //read the pointer of the indirect block inside of the double indirect block
 
-        dindirect_offset2 = adj_dblock_id % 128; //the offset of direct pointer in the indirect block
-
-        pos = (start_pos_dblock + data_block_idx1) * KTFS_BLKSZ + dindirect_offset2 * KTFS_DATA_BLOCK_PTR_SIZE; //calculate the position of the direct pointer in the indirect pointer
-
-        cache_readat(cache, pos, &data_block_idx2, KTFS_DATA_BLOCK_PTR_SIZE);
-        //ioreadat(backend, pos, &data_block_idx2, KTFS_DATA_BLOCK_PTR_SIZE); //read the direct data block pointer
-
-
-        pos = (start_pos_dblock + data_block_idx2) * KTFS_BLKSZ + dblock_offset;    //calculate the position of the data block
-
+        pos = (start_pos_dblock + data_block_idx1) * KTFS_BLKSZ + dblock_offset;
         cache_writeat(cache, pos, buf, len);
-        //ioreadat(backend, pos, buf, len); //read the data block to the buf
+        return 0;
+    }
+    else
+    {
+        if ((dblock_id - 131) < (128 * 128))
+        {
+            dindirect_instance = 0;
+            adj_dblock_id = dblock_id - 131;
+        }
+        else
+        {
+            dindirect_instance = 1;
+            adj_dblock_id = dblock_id - 131 - 128 * 128;
+        }
+
+        dindirect_offset1 = adj_dblock_id / 128;
+        pos = (start_pos_dblock + inode->dindirect[dindirect_instance]) * KTFS_BLKSZ;
+        pos += dindirect_offset1 * KTFS_DATA_BLOCK_PTR_SIZE;
+        cache_readat(cache, pos, &data_block_idx1, KTFS_DATA_BLOCK_PTR_SIZE);
+
+        dindirect_offset2 = adj_dblock_id % 128;
+        pos = (start_pos_dblock + data_block_idx1) * KTFS_BLKSZ;
+        pos += dindirect_offset2 * KTFS_DATA_BLOCK_PTR_SIZE;
+        cache_readat(cache, pos, &data_block_idx2, KTFS_DATA_BLOCK_PTR_SIZE);
+
+        pos = (start_pos_dblock + data_block_idx2) * KTFS_BLKSZ + dblock_offset;
+        cache_writeat(cache, pos, buf, len);
+
         return 0;
     }
 }
 
-
-int allocate_new_data_block(struct ktfs_inode * inode, uint32_t dblock_id){
-    unsigned long long pos;
-    unsigned long long start_pos_dblock = 1 + fs->superblock.bitmap_block_count + fs->superblock.inode_block_count;
+int allocate_new_data_block(struct ktfs_inode * inode, uint32_t dblock_id)
+{
+    uint32_t pos;
+    uint32_t start_pos_dblock;
     uint32_t adj_dblock_id;
 
-    uint32_t data_block_idx1; //used to contain indirect datablock indexes in order to find the needed data block
-    //uint32_t data_block_idx2;
-    uint32_t dindirect_instance; //there are 2 dindirects in inode
+    uint32_t data_block_idx1;
+    uint32_t dindirect_instance;
 
     uint32_t temp;
     uint32_t dindirect_offset1;
     uint32_t dindirect_offset2;
     uint32_t new_dblock_id = ktfs_get_new_block();
 
-    if(new_dblock_id == 0)
-        return -ENODATABLKS;
+    start_pos_dblock = 1 + fs->superblock.bitmap_block_count;
+    start_pos_dblock += fs->superblock.inode_block_count;
+    new_dblock_id = ktfs_get_new_block();
 
-    if(dblock_id < 3){  //if the dblock_id is less than 3, then it is a direct block
+    if (new_dblock_id == 0)
+    {
+        return -ENODATABLKS;
+    }
+
+    if (dblock_id < 3)
+    {
         inode->block[dblock_id] = new_dblock_id;
         return 0;
     }
-    else if((dblock_id - 3) < 128){ //128 is the number of data blocks for indirect reference.
-
-        if(dblock_id == 3){
+    else if ((dblock_id - 3) < 128)
+    {
+        if (dblock_id == 3)
+        {
             temp = ktfs_get_new_block();
-            if(temp == 0)
+            if (temp == 0)
+            {
                 return -ENODATABLKS;
+            }
+
             inode->indirect = temp;
-        } //allocate the new block of pointers
+        }
 
-
-        pos = (start_pos_dblock + inode->indirect) * KTFS_BLKSZ + (dblock_id - 3) * KTFS_DATA_BLOCK_PTR_SIZE; //read the pointer of the block I need in the indirect data block
-        cache_writeat(cache, pos, &new_dblock_id, KTFS_DATA_BLOCK_PTR_SIZE); //set the new dblock id
+        pos = (start_pos_dblock + inode->indirect) * KTFS_BLKSZ;
+        pos += (dblock_id - 3) * KTFS_DATA_BLOCK_PTR_SIZE;
+        cache_writeat(cache, pos, &new_dblock_id, KTFS_DATA_BLOCK_PTR_SIZE);
 
         return 0;
     }
-    else{
-        if((dblock_id - 131) < (128 * 128)){    //128*128 is the number of data blocks in each double indirect instance. 131 is the number of data blocks from direct and indirect data blocks
-            dindirect_instance = 0; //0 as it is the first instance of the double indirect
-            adj_dblock_id = dblock_id - 131;    //get the adjusted datablock id of the double indirect data blocks. This is used to calculate the pos
+    else
+    {
+        if ((dblock_id - 131) < (128 * 128))
+        {
+            dindirect_instance = 0;
+            adj_dblock_id = dblock_id - 131;
         }
-        else{
+        else
+        {
             dindirect_instance = 1;
-            adj_dblock_id = dblock_id - 131 - 128 * 128; //get the adjusted data block if the id is a part of the 2nd double indirect reference.
+            adj_dblock_id = dblock_id - 131 - 128 * 128;
         }
 
-        dindirect_offset1 = adj_dblock_id / 128; //select offset of indirect pointer in the double indirect block
-        dindirect_offset2 = adj_dblock_id % 128; //the offset of direct pointer in the indirect block
+        dindirect_offset1 = adj_dblock_id / 128;
+        dindirect_offset2 = adj_dblock_id % 128;
 
-        if(adj_dblock_id == 0){
+        // get new block of indirect pointers
+
+        if (adj_dblock_id == 0)
+        {
             temp = ktfs_get_new_block();
             if(temp == 0)
+            {
                 return -ENODATABLKS;
+            }
+
             inode->dindirect[dindirect_instance] = temp;
-        }  //get the new block of indirect pointers
+        }
 
+        pos = (start_pos_dblock + inode->dindirect[dindirect_instance]) * KTFS_BLKSZ;
+        pos += dindirect_offset1 * KTFS_DATA_BLOCK_PTR_SIZE;
 
-
-        pos = (start_pos_dblock + inode->dindirect[dindirect_instance]) * KTFS_BLKSZ + dindirect_offset1 * KTFS_DATA_BLOCK_PTR_SIZE; //position of the double indirect block.
-
-        if(dindirect_offset2 == 0){ //allocate the block if it is the first ptr of the 2nd indirect block
+        if (dindirect_offset2 == 0)
+        {
             temp = ktfs_get_new_block();
-            if(temp == 0)
+            if (temp == 0)
+            {
                 return -ENODATABLKS;
+            }
+
             data_block_idx1 = temp;
             cache_writeat(cache, pos, &data_block_idx1, KTFS_DATA_BLOCK_PTR_SIZE);
         }
-        else    //get the data_block_idx1 in order to get into it
+        else
+        {
             cache_readat(cache, pos, &data_block_idx1, KTFS_DATA_BLOCK_PTR_SIZE);
+        }
 
-
-        pos = (start_pos_dblock + data_block_idx1) * KTFS_BLKSZ + dindirect_offset2 * KTFS_DATA_BLOCK_PTR_SIZE; //calculate the position of the direct pointer in the indirect pointer
-
-
+        pos = (start_pos_dblock + data_block_idx1) * KTFS_BLKSZ;
+        pos += dindirect_offset2 * KTFS_DATA_BLOCK_PTR_SIZE;
         cache_writeat(cache, pos, &new_dblock_id, KTFS_DATA_BLOCK_PTR_SIZE);
+
         return 0;
     }
 }
 
 int ktfs_open(const char * name, struct io ** ioptr)
 {
-    static const struct iointf ktfs_intf = {
+    static const struct iointf ktfs_intf =
+    {
         .readat = &ktfs_readat,
         .writeat = &ktfs_writeat,
         .cntl = &ktfs_cntl,
@@ -640,48 +689,58 @@ int ktfs_open(const char * name, struct io ** ioptr)
 
     };
 
-    struct ktfs_file* my_file = kcalloc(1, sizeof(struct ktfs_file));
+    struct ktfs_file * my_file = kcalloc(1, sizeof(struct ktfs_file));
     struct ktfs_inode root_inode;
+    uint64_t  pos;
 
-
-    unsigned long long pos = fs->superblock.root_directory_inode * KTFS_INOSZ + (1 + fs->superblock.bitmap_block_count) * KTFS_BLKSZ;
-
-    cache_readat(cache, pos, &root_inode, KTFS_INOSZ);
-    //ioreadat(backend, pos, &root_inode, KTFS_INOSZ);
-
-
-    //int rw_data_block_at(struct ktfs_inode * inode, uint32_t dblock_id, uint32_t dblock_offset, void * buf, long len)
-    uint32_t num_inodes = root_inode.size / KTFS_DENSZ;   //number of inodes
-    uint32_t inode_count = 0;
+    uint32_t num_inodes;
     uint32_t root_dir_inode_blk_cnt;
+    uint32_t inode_count;
+
+    pos = fs->superblock.root_directory_inode * KTFS_INOSZ;
+    pos += (1 + fs->superblock.bitmap_block_count) * KTFS_BLKSZ;
+    cache_readat(cache, pos, &root_inode, KTFS_INOSZ);
+
     root_dir_inode_blk_cnt = root_inode.size / KTFS_BLKSZ;
-
-    if(root_inode.size % KTFS_BLKSZ != 0) //edge case. Ex. 513/512
+    if(root_inode.size % KTFS_BLKSZ != 0)
+    {
         root_dir_inode_blk_cnt++;
+    }
 
-    for(int i = 0; i < root_dir_inode_blk_cnt; i++){
-        for(int j = 0; j < (KTFS_BLKSZ / KTFS_DENSZ); j++){
-            read_data_blockat(&root_inode, i, j * KTFS_DENSZ, &my_file->entry, KTFS_DENSZ);
+    num_inodes = root_inode.size / KTFS_DENSZ;
+    inode_count = 0;
+
+    for (int i = 0; i < root_dir_inode_blk_cnt; i++)
+    {
+        for (int j = 0; j < (KTFS_BLKSZ / KTFS_DENSZ); j++)
+        {
+            read_data_blockat(
+                &root_inode, i, j * KTFS_DENSZ, &my_file->entry, KTFS_DENSZ);
+
             inode_count++;
-            if(strncmp(my_file->entry.name, name, KTFS_MAX_FILENAME_LEN + sizeof(uint8_t)) == 0){
-                //??? Do I need to fill out the file size here? Instructions say only write/writeat needs to update it
+
+            if (strncmp(my_file->entry.name, name, KTFS_MAX_FILENAME_LEN + sizeof(uint8_t)) == 0)
+            {
                 struct ktfs_inode my_inode;
-                pos = my_file->entry.inode * KTFS_INOSZ + (1 + fs->superblock.bitmap_block_count) * KTFS_BLKSZ;
+
+                pos = my_file->entry.inode * KTFS_INOSZ;
+                pos += (1 + fs->superblock.bitmap_block_count) * KTFS_BLKSZ;
                 cache_readat(cache, pos, &my_inode, KTFS_INOSZ);
 
-                //ioreadat(backend, pos, &my_inode, KTFS_INOSZ);
                 my_file->file_size = my_inode.size;
 
-                insert_file_to_list(my_file); //insert file to the open file list
+                insert_file_to_list(my_file);
 				*ioptr = create_seekable_io(ioinit1(&my_file->io, &ktfs_intf));
+
                 return 0;
             }
 
-            if(inode_count == num_inodes)   //making sure it doesn't read past the last inode.
-                return -ENOENT; //it cooked
-
+            // check if read past the last inode
+            if (inode_count == num_inodes)
+            {
+                return -ENOENT; // it cooked
+            }
         }
-
     }
 
     return -ENOENT;
@@ -689,340 +748,410 @@ int ktfs_open(const char * name, struct io ** ioptr)
 
 void ktfs_close(struct io* io)
 {
-    struct ktfs_file * my_file = (void*)io - offsetof(struct ktfs_file, io);
+    struct ktfs_file * my_file;
+
+    my_file = (void*)io - offsetof(struct ktfs_file, io);
     delete_file_from_list(my_file->entry.name);
     ktfs_flush();
-    //kfree(my_file);
     return;
 }
 
 long ktfs_readat(struct io* io, unsigned long long pos, void * buf, long len)
 {
     struct ktfs_file * my_file = (void*)io - offsetof(struct ktfs_file, io);
-
-    char blkbuf[KTFS_BLKSZ];
-
-    long remaining_len = len;
-    uint32_t blkno;
-
-    uint32_t blkoff;
-
-    long cpycnt;
     struct ktfs_inode my_inode;
-    unsigned long long inode_pos = my_file->entry.inode * KTFS_INOSZ + (1 + fs->superblock.bitmap_block_count) * KTFS_BLKSZ; //check this stuff??? on 3-29-25
+    uint64_t inode_pos;
 
+    char blkbuf[KTFS_BLKSZ]; // FIXME: this seems bad
+    uint32_t blkno;
+    uint32_t blkoff;
+    uint64_t remaining;
+    uint64_t cpycnt;
+
+    inode_pos = my_file->entry.inode * KTFS_INOSZ;
+    inode_pos += (1 + fs->superblock.bitmap_block_count) * KTFS_BLKSZ;
     cache_readat(cache, inode_pos, &my_inode, KTFS_INOSZ);
-    //ioreadat(backend, inode_pos, &my_inode, KTFS_INOSZ);
-    debug("position: %d\nlen: %d\n", pos, len);
+    debug("position=%d\n, len=%d", pos, len);
 
-
-    if(pos >= my_file->file_size || len < 0)
+    if (pos >= my_file->file_size || len < 0)
+    {
         return -EINVAL; //cooked
+    }
 
-    if((pos + len) > my_file->file_size) //truncate the write if len is too big
+    // truncate the write if len is too big
+    if ((pos + len) > my_file->file_size)
+    {
         len = my_file->file_size - pos;
-
-    remaining_len = len;
+    }
 
     blkno = pos / KTFS_BLKSZ;
     blkoff = pos % KTFS_BLKSZ;
 
+    remaining = len;
     cpycnt = KTFS_BLKSZ - blkoff;
-    if(cpycnt > len)   // changed < to > //for the case where the data doesn't go to the end of the block
+    if (cpycnt > len)
+    {
         cpycnt = len;
+    }
 
     read_data_blockat(&my_inode, blkno, 0, blkbuf, KTFS_BLKSZ);
     memcpy(buf, blkbuf + blkoff, cpycnt);
-    remaining_len -= cpycnt;
+    remaining -= cpycnt;
 	buf += cpycnt;
 
-    blkno++; //read the next block
-    //if data is stored in more than one block
-    while(remaining_len != 0){ //made change to >
+    blkno++;
+
+    // if data is stored in more than one block
+
+    while (remaining != 0)
+    {
         read_data_blockat(&my_inode, blkno, 0, blkbuf, KTFS_BLKSZ);
 
-        if(remaining_len > KTFS_BLKSZ)
+        if (remaining > KTFS_BLKSZ)
+        {
             cpycnt = KTFS_BLKSZ;
+        }
         else
-            cpycnt = remaining_len;
-        memcpy(buf, blkbuf, cpycnt);//dies here cpycnt gets corrupted
-		buf += cpycnt;
+        {
+            cpycnt = remaining;
+        }
 
-        remaining_len -= cpycnt;
+        memcpy(buf, blkbuf, cpycnt);
+		buf += cpycnt;
+        remaining -= cpycnt;
+
         blkno++;
     }
-
 
     return len;
 }
 
-long ktfs_writeat(struct io* io, unsigned long long pos, const void * buf, long len)
+long ktfs_writeat (
+        struct io* io,
+        unsigned long long pos,
+        const void * buf,
+        long len)
 {
     struct ktfs_file * my_file = (void*)io - offsetof(struct ktfs_file, io);
-
-    //char blkbuf[KTFS_BLKSZ];
-
-    long remaining_len = len;
-    uint32_t blkno;
-
-    uint32_t blkoff;
-
-    long cpycnt;
     struct ktfs_inode my_inode;
-    unsigned long long inode_pos = my_file->entry.inode * KTFS_INOSZ + (1 + fs->superblock.bitmap_block_count) * KTFS_BLKSZ; //check this stuff??? on 3-29-25
+    uint64_t inode_pos;
 
+    uint32_t blkno;
+    uint32_t blkoff;
+    uint64_t remaining;
+    uint64_t cpycnt;
+
+    inode_pos = my_file->entry.inode * KTFS_INOSZ;
+    inode_pos += (1 + fs->superblock.bitmap_block_count) * KTFS_BLKSZ;
     cache_readat(cache, inode_pos, &my_inode, KTFS_INOSZ);
-
     debug("position: %d\nlen: %d\n", pos, len);
 
-    if(pos >= my_file->file_size || len < 0)
+    if (pos >= my_file->file_size || len < 0)
+    {
         return -EINVAL; //cooked
+    }
 
-    if((pos + len) > my_file->file_size) //truncate the write if len is too big
+    // truncate the write if len is too big
+    if ((pos + len) > my_file->file_size)
+    {
         len = my_file->file_size - pos;
-
-    remaining_len = len;
+    }
 
     blkno = pos / KTFS_BLKSZ;
     blkoff = pos % KTFS_BLKSZ;
 
+    remaining = len;
     cpycnt = KTFS_BLKSZ - blkoff;
-    if(cpycnt > len)   // changed < to > //for the case where the data doesn't go to the end of the block
+
+    if (cpycnt > len)
+    {
         cpycnt = len;
+    }
 
     write_data_blockat(&my_inode, blkno, blkoff, buf, cpycnt);
 
-    remaining_len -= cpycnt;
+    remaining -= cpycnt;
 	buf += cpycnt;
 
-    blkno++; //read the next block
-    //if data is stored in more than one block
-    while(remaining_len != 0){ //made change to >
+    blkno++;
 
-        if(remaining_len > KTFS_BLKSZ)
+    // if data is stored in more than one block
+
+    while (remaining != 0)
+    {
+        if (remaining > KTFS_BLKSZ)
+        {
             cpycnt = KTFS_BLKSZ;
+        }
         else
-            cpycnt = remaining_len;
+        {
+            cpycnt = remaining;
+        }
 
         write_data_blockat(&my_inode, blkno, 0, buf, cpycnt);
 
 		buf += cpycnt;
+        remaining -= cpycnt;
 
-        remaining_len -= cpycnt;
         blkno++;
     }
-
 
     return len;
 }
 
 
-int ktfs_create(const char *name){
-
-    //rw_data_block_at(int rw, struct ktfs_inode * inode, uint32_t dblock_id, uint32_t dblock_offset, void * buf, long len)
+int ktfs_create(const char *name)
+{
     struct ktfs_inode root_inode;
-    struct ktfs_inode my_inode; //newly created inode
-    struct ktfs_dir_entry temp_dentry; //temp dentry used for checking file names
-    int dentry_cnt = 0;
+    struct ktfs_inode new_inode;
+    struct ktfs_dir_entry temp_dentry;
+    uint64_t pos;
     uint32_t root_dir_inode_blk_cnt;
+    uint32_t dentry_cnt;
 
-    unsigned long long pos = fs->superblock.root_directory_inode * KTFS_INOSZ + (1 + fs->superblock.bitmap_block_count) * KTFS_BLKSZ;
-
+    pos = fs->superblock.root_directory_inode * KTFS_INOSZ;
+    pos += (1 + fs->superblock.bitmap_block_count) * KTFS_BLKSZ;
     cache_readat(cache, pos, &root_inode, KTFS_INOSZ);
 
     root_dir_inode_blk_cnt = root_inode.size / KTFS_BLKSZ;
 
-    if(root_inode.size % KTFS_BLKSZ != 0) //edge case. Ex. 513/512
+    if (root_inode.size % KTFS_BLKSZ != 0)
+    {
         root_dir_inode_blk_cnt++;
-
-    if(strlen(name) > KTFS_MAX_FILENAME_LEN) //checking to see if file name is valid
-        return -EINVAL;
-
-    for(int i = 0; i < root_dir_inode_blk_cnt; i++){    //checking to see if there is an existing file name
-        for(int j = 0; j < (KTFS_BLKSZ / KTFS_DENSZ); j++){
-            if (dentry_cnt == (root_inode.size / KTFS_DENSZ))
-                goto create_continue;
-            read_data_blockat(&root_inode, i, j * KTFS_DENSZ, &temp_dentry, KTFS_DENSZ);
-            if(strncmp(temp_dentry.name, name, KTFS_MAX_FILENAME_LEN + sizeof(uint8_t)) == 0){
-                return -EINVAL;
-            }
-            dentry_cnt++;
-
-        }
-
     }
 
-    create_continue:
+    if (strlen(name) > KTFS_MAX_FILENAME_LEN)
+    {
+        return -EINVAL;
+    }
+
+    // check if there is already an existing file
+    for (int i = 0; i < root_dir_inode_blk_cnt; i++)
+    {
+        for (int j = 0; j < (KTFS_BLKSZ / KTFS_DENSZ); j++)
+        {
+            if (dentry_cnt == (root_inode.size / KTFS_DENSZ))
+            {
+                goto create_continue;
+            }
+
+            read_data_blockat(&root_inode, i, j * KTFS_DENSZ, &temp_dentry, KTFS_DENSZ);
+            if (strncmp(temp_dentry.name, name,
+                KTFS_MAX_FILENAME_LEN + sizeof(uint8_t)) == 0)
+            {
+                return -EINVAL;
+            }
+
+            dentry_cnt++;
+        }
+    }
+
+create_continue:
     uint32_t blkoff = root_inode.size % KTFS_BLKSZ;
     uint32_t blkno = root_inode.size / KTFS_BLKSZ;
 
-
-
-    if(blkoff == 0){    //if the blkoff is 0, we need a new block
-        if(allocate_new_data_block(&root_inode, blkno) < 0)
+    // block offset is 0 we need a new block
+    if (blkoff == 0)
+    {
+        if (allocate_new_data_block(&root_inode, blkno) < 0)
+        {
             return -ENODATABLKS;
-        cache_writeat(cache, pos, &root_inode, KTFS_INOSZ);
+        }
 
+        cache_writeat(cache, pos, &root_inode, KTFS_INOSZ);
     }
 
     struct ktfs_dir_entry dentry;
     uint16_t new_inode_num;
-    if(ktfs_get_new_inode(&new_inode_num) < 0)
+
+    if (ktfs_get_new_inode(&new_inode_num) < 0)
+    {
         return -ENOINODEBLKS;
-    dentry.inode = new_inode_num;  //get a new inode id
+    }
 
-    memcpy(dentry.name, name, KTFS_MAX_FILENAME_LEN + sizeof(uint8_t)); //copy the name to the dentry name
+    dentry.inode = new_inode_num;
+    memcpy(dentry.name, name, KTFS_MAX_FILENAME_LEN + sizeof(uint8_t));
+    write_data_blockat(&root_inode, blkno, blkoff, &dentry, KTFS_DENSZ);
+    root_inode.size += KTFS_DENSZ;
 
-    write_data_blockat(&root_inode, blkno, blkoff, &dentry, KTFS_DENSZ);   //add the new dentry into the root directory inode
+    // update root inode
+    cache_writeat(cache, pos, &root_inode, KTFS_INOSZ);
 
-    root_inode.size += KTFS_DENSZ;  //increment the size in the root directory inode
+    // set initilze file size to 0
+    new_inode.size = 0;
 
-    cache_writeat(cache, pos, &root_inode, KTFS_INOSZ); //update the root inode
+    pos = dentry.inode * KTFS_INOSZ;
+    pos += (1 + fs->superblock.bitmap_block_count) * KTFS_BLKSZ;
+    cache_writeat(cache, pos, &new_inode, KTFS_INOSZ);
 
-    my_inode.size = 0;  //set the file size to length 0
-
-    pos = dentry.inode * KTFS_INOSZ + (1 + fs->superblock.bitmap_block_count) * KTFS_BLKSZ; //get the position of the new inode
-
-    cache_writeat(cache, pos, &my_inode, KTFS_INOSZ); //write the inode to the disk
-
-    ktfs_flush(); //To ensure changes persist on the disk.
+    // ensure changes persist on disk
+    ktfs_flush();
 
     return 0;
-
 }
 
 //TODO Add error codes for Not datablocks avail and no inodeblks avail
-int ktfs_ext_len(struct ktfs_file * my_file, void * arg){
-    unsigned long long len = *(unsigned long long *) arg;
 
-    if(len <= my_file->file_size || len == 0) //TODO max file size
-        return 0;
+int ktfs_ext_len(struct ktfs_file * my_file, void * arg)
+{
+    struct ktfs_inode my_inode;
+    uint64_t inode_pos;
 
-    size_t old_size = my_file->file_size;
-
+    uint64_t len;
     uint32_t start_dblock_id;
-
     uint32_t last_dblock_id;
+    size_t old_size;
 
+    len = *(uint64_t *) arg;
+
+    // TODO: max file size
+    if (len <= my_file->file_size || len == 0)
+    {
+        return 0;
+    }
+
+    old_size = my_file->file_size;
     my_file->file_size = len;
 
+    inode_pos = my_file->entry.inode * KTFS_INOSZ;
+    inode_pos += (1 + fs->superblock.bitmap_block_count) * KTFS_BLKSZ;
+    cache_readat(cache, inode_pos, &my_inode, KTFS_INOSZ);
 
-    struct ktfs_inode my_inode;
-    unsigned long long inode_pos = my_file->entry.inode * KTFS_INOSZ + (1 + fs->superblock.bitmap_block_count) * KTFS_BLKSZ; //check this stuff??? on 3-29-25
-
-
-    cache_readat(cache, inode_pos, &my_inode, KTFS_INOSZ);   //read the inode struct
-
-    my_inode.size = len;    //set the new len
-
-    cache_writeat(cache, inode_pos, &my_inode, KTFS_INOSZ);   //write the updated size back
+    my_inode.size = len;
+    cache_writeat(cache, inode_pos, &my_inode, KTFS_INOSZ);
 
     last_dblock_id = (len - 1) / KTFS_BLKSZ;
 
-    if(old_size == 0){
+    if (old_size == 0)
+    {
         start_dblock_id = 0;
     }
     else
-        start_dblock_id = (old_size - 1) / KTFS_BLKSZ + 1;    //start at the next block needed
+    {
+        // start at the next block needed
+        start_dblock_id = (old_size - 1) / KTFS_BLKSZ + 1;
+    }
 
-    for(int i = start_dblock_id; i <= last_dblock_id; i++ ){
-        if(allocate_new_data_block(&my_inode, i) < 0)
+    for (int i = start_dblock_id; i <= last_dblock_id; i++ )
+    {
+        if (allocate_new_data_block(&my_inode, i) < 0)
+        {
             return -ENODATABLKS;
+        }
+
         cache_writeat(cache, inode_pos, &my_inode, KTFS_INOSZ);
     }
+
     return 0;
-
-
 }
 
 
-int ktfs_delete(const char * name){
+int ktfs_delete(const char * name)
+{
     struct ktfs_inode root_inode;
     struct ktfs_inode my_inode;
-    struct ktfs_dir_entry dentry; //temp dentry used for checking file names
-    struct ktfs_dir_entry last_dentry; //used to insert the last dentry into the one being deleted. Avoids having to shift dentries
+    struct ktfs_dir_entry temp_dentry;
+    struct ktfs_dir_entry last_dentry;
+
     int dentry_cnt = 0;
     uint32_t root_dir_inode_blk_cnt;
 
-    unsigned long long pos = fs->superblock.root_directory_inode * KTFS_INOSZ + (1 + fs->superblock.bitmap_block_count) * KTFS_BLKSZ;
+    uint64_t pos;
 
+    pos = fs->superblock.root_directory_inode * KTFS_INOSZ;
+    pos += (1 + fs->superblock.bitmap_block_count) * KTFS_BLKSZ;
     cache_readat(cache, pos, &root_inode, KTFS_INOSZ);
 
     root_dir_inode_blk_cnt = root_inode.size / KTFS_BLKSZ;
 
-    if(root_inode.size % KTFS_BLKSZ != 0) //edge case. Ex. 513/512
+    if (root_inode.size % KTFS_BLKSZ != 0)
+    {
         root_dir_inode_blk_cnt++;
+    }
 
-    if(strlen(name) > KTFS_MAX_FILENAME_LEN) //checking to see if file name is valid
+    // check if file name is valid
+    if (strlen(name) > KTFS_MAX_FILENAME_LEN)
+    {
         return -EINVAL;
+    }
 
-    for(int i = 0; i < root_dir_inode_blk_cnt; i++){    //checking to see if there is an existing file name
-        for(int j = 0; j < (KTFS_BLKSZ / KTFS_DENSZ); j++){
+    // check if a file exists
+    for (int i = 0; i < root_dir_inode_blk_cnt; i++)
+    {
+        for (int j = 0; j < (KTFS_BLKSZ / KTFS_DENSZ); j++)
+        {
             if (dentry_cnt == (root_inode.size / KTFS_DENSZ))
-                return -ENOENT; // reached last dentry
-            read_data_blockat(&root_inode, i, j * KTFS_DENSZ, &dentry, KTFS_DENSZ);
-            if(strncmp(dentry.name, name, KTFS_MAX_FILENAME_LEN + sizeof(uint8_t)) == 0){
+            {
+                return -ENOENT;
+            }
+
+            read_data_blockat(&root_inode, i, j * KTFS_DENSZ, &temp_dentry, KTFS_DENSZ);
+            if (strncmp(temp_dentry.name, name, KTFS_MAX_FILENAME_LEN + sizeof(uint8_t)) == 0)
+            {
                 goto found_name;
             }
+
             dentry_cnt++;
-
         }
-
     }
-    return -ENOENT; //file not found. Cooked
 
-    found_name:
+    // file not found
+    return -ENOENT; //file not found
 
-    unsigned long long inode_pos = dentry.inode * KTFS_INOSZ + (1 + fs->superblock.bitmap_block_count) * KTFS_BLKSZ; //get the inode of the file
+found_name:
 
-    cache_readat(cache, inode_pos, &my_inode, KTFS_INOSZ);   //read the inode
+    uint64_t inode_pos;
+    uint32_t data_block_count;
 
+    inode_pos = temp_dentry.inode * KTFS_INOSZ;
+    inode_pos += (1 + fs->superblock.bitmap_block_count) * KTFS_BLKSZ;
+    cache_readat(cache, inode_pos, &my_inode, KTFS_INOSZ);
 
-    uint32_t data_block_count = my_inode.size / KTFS_BLKSZ;
+    data_block_count = my_inode.size / KTFS_BLKSZ;
 
-    if(my_inode.size % KTFS_BLKSZ != 0) //edge case. Ex. 513/512
+    if (my_inode.size % KTFS_BLKSZ != 0)
+    {
         data_block_count++;
+    }
 
-    for(int i = data_block_count - 1; i >= 0; i--){ //loop through and release the data blocks
+    for (int i = data_block_count - 1; i >= 0; i--)
+    {
         release_data_block(&my_inode, i);
     }
 
-    //kprintf("Release Dentry Inode: %d \n", dentry.inode);
+    ktfs_release_inode(temp_dentry.inode);
 
-    ktfs_release_inode(dentry.inode); //release the inode
+    // get the block info of the last dentry
 
-    //get the blk info of the last dentry
     uint32_t last_blkoff = (root_inode.size - KTFS_DENSZ) % KTFS_BLKSZ;
     uint32_t last_blkno = (root_inode.size - KTFS_DENSZ) / KTFS_BLKSZ;
 
     uint32_t curr_blkoff = (dentry_cnt * KTFS_DENSZ) % KTFS_BLKSZ;
     uint32_t curr_blkno = (dentry_cnt * KTFS_DENSZ) / KTFS_BLKSZ;
 
+    read_data_blockat(&root_inode, last_blkno, last_blkoff, &last_dentry, KTFS_DENSZ);
+    write_data_blockat(&root_inode, curr_blkno, curr_blkoff, &last_dentry, KTFS_DENSZ);
 
-    read_data_blockat(&root_inode, last_blkno, last_blkoff, &last_dentry, KTFS_DENSZ); //read the last dentry
-
-    write_data_blockat(&root_inode, curr_blkno, curr_blkoff, &last_dentry, KTFS_DENSZ); //copy the last dentry to the dentry we are trying to delete
-
-    if(last_blkoff == 0)    //release the dentry block if it is the last entry left in the block
+    // release the dentry block if it is the last entry left in the block
+    if (last_blkoff == 0)
+    {
         release_data_block(&root_inode, last_blkno);
+    }
 
-    root_inode.size -= KTFS_DENSZ;  //decrement the size in Root Directory Inode
+    // decrease the size of filesystem
+    root_inode.size -= KTFS_DENSZ;
 
-    pos = fs->superblock.root_directory_inode * KTFS_INOSZ + (1 + fs->superblock.bitmap_block_count) * KTFS_BLKSZ; //trust issues
+    pos = fs->superblock.root_directory_inode * KTFS_INOSZ;
+    pos += (1 + fs->superblock.bitmap_block_count) * KTFS_BLKSZ; // trust issues
 
-    cache_writeat(cache, pos, &root_inode, KTFS_INOSZ); //write the updated root directory inode to disk
+    cache_writeat(cache, pos, &root_inode, KTFS_INOSZ);
 
-
-    //TODO need to create a table of file names and their ioptr for the close function
+    // TODO: need to create a table of file names and their ioptr for
+    // the close function
     delete_file_from_list(name);
-
     ktfs_flush();
 
-
-
-
     return 0;
-
 }
 
 int ktfs_cntl(struct io *io, int cmd, void *arg)
@@ -1031,7 +1160,8 @@ int ktfs_cntl(struct io *io, int cmd, void *arg)
 	size_t * szarg = arg;
     int result;
 
-    switch (cmd) {
+    switch (cmd)
+    {
     case IOCTL_GETBLKSZ:
         return 1;
         break;
@@ -1047,7 +1177,6 @@ int ktfs_cntl(struct io *io, int cmd, void *arg)
     }
 
     return result;
-    return 0;
 }
 
 int ktfs_flush(void)
