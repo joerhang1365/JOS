@@ -29,5 +29,40 @@
 
 struct viohi_device
 {
+    volatile struct virtio_mmio_regs * regs;
+    int irqno;
+    int instno;
+
+    struct io io;
+
+    struct
+    {
+        uint16_t last_used_idx;
+
+        union
+        {
+            struct virtq_avail avail;
+            char
+        }
+    }
+
+    struct {
+        uint16_t last_used_idx;
+
+        union {
+            struct virtq_avail avail;
+            char _avail_filler[VIRTQ_AVAIL_SIZE(1)];
+        };
+
+        union {
+            volatile struct virtq_used used;
+            char _used_filler[VIRTQ_USED_SIZE(1)];
+        };
+
+        // The first descriptor is a regular descriptor and is the one used in
+        // the avail and used rings.
+
+        struct virtq_desc desc[1];
+    } vq;
 
 }

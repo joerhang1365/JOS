@@ -27,7 +27,6 @@ endif
 ALL_TARGETS = \
 	hello \
 	syscall \
-	skyline \
 	fib \
 	trekfib \
 	trek_wrapper \
@@ -42,6 +41,8 @@ CFLAGS += -I.
 ifeq ($(UMODE), 1)
 	CFLAGS += -DUMODE
 endif
+
+.PHONY: all clean
 
 all: $(ALL_TARGETS)
 

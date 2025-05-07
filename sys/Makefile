@@ -100,6 +100,13 @@ QEMUOPTS += -serial pty
 # console
 QEMUOPTS += -monitor pty
 
+.PHONY: all
+.PHONY: run
+.PHONY: debug
+.PHONY: usr
+.PHONY: mkfs_ktfs
+.PHONY: clean
+
 all: kernel.elf mkfs_ktfs
 
 kernel.elf: $(OBJS) main.o blob.o
@@ -108,14 +115,18 @@ kernel.elf: $(OBJS) main.o blob.o
 run: kernel.elf mkfs_ktfs
 	$(QEMU) $(QEMUOPTS) -m 8M -kernel $<
 
+debug: kernel.elf
+	$(QEMU) $(QEMUOPTS) -m 8M -kernel $< -S -s
+
+usr:
+	$(MAKE) -C ../usr all
+
 SIZE=16M
 INODES=32
 
+# filesystem
 mkfs_ktfs:
 	./../util/fs/mkfs_ktfs ktfs.raw $(SIZE) $(INODES) ../usr/bin/*
-
-debug: kernel.elf
-	$(QEMU) $(QEMUOPTS) -m 8M -kernel $< -S -s
 
 blob.o:
 	echo .end | $(AS) $(ASFLAGS) -o blob.o

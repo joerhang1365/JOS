@@ -15,8 +15,6 @@
 #include "process.h"
 #include "timer.h"
 
-#define VIRTIO_MMIO_STEP (VIRTIO1_MMIO_BASE-VIRTIO0_MMIO_BASE)
-#define INIT_NAME "trekfib"
 #define NUM_UARTS 5
 
 void interrupter();
@@ -49,15 +47,13 @@ void main(void)
     procmgr_init();
     timer_init();
 
-    //uart_attach((void*)UART0_MMIO_BASE, UART0_INTR_SRCNO+0);
-    //uart_attach((void*)UART1_MMIO_BASE, UART0_INTR_SRCNO+1);
     rtc_attach((void*)RTC_MMIO_BASE);
 
     for (i = 0; i < NUM_UARTS; i++)
-        uart_attach((void *)UART_MMIO_BASE(i), UART0_INTR_SRCNO+i);
+        uart_attach((void *)UART_MMIO_BASE(i), UART_INTR_SRCNO(i));
 
     for (i = 0; i < 8; i++)
-        virtio_attach ((void *)VIRTIO0_MMIO_BASE + i*VIRTIO_MMIO_STEP, VIRTIO0_INTR_SRCNO + i);
+        virtio_attach ((void *)VIRTIO_MMIO_BASE(i), VIRTIO_INTR_SRCNO(i));
 
     enable_interrupts();
 
