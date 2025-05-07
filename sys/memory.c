@@ -182,7 +182,9 @@ void memory_init(void)
     // Kernel must fit inside 2MB megapage (one level 1 PTE)
 
     if (MEGA_SIZE < _kimg_end - _kimg_start)
+    {
         panic(NULL);
+    }
 
     // Initialize main page table with the following direct mapping:
     //
@@ -197,7 +199,9 @@ void memory_init(void)
 
     // Identity mapping of MMIO region as two gigapage mappings
     for (pma = 0; pma < RAM_START_PMA; pma += GIGA_SIZE)
+    {
         main_pt2[VPN2(pma)] = leaf_pte((void*)pma, PTE_R | PTE_W | PTE_G);
+    }
 
     // Third gigarange has a second-level subtable
     main_pt2[VPN2(RAM_START_PMA)] = ptab_pte(main_pt1_0x80000, PTE_G);
@@ -252,7 +256,9 @@ void memory_init(void)
     }
 
     if (RAM_END < heap_end)
+    {
         panic("out of memory");
+    }
 
     // Initialize heap memory manager
 
@@ -318,6 +324,7 @@ mtag_t clone_active_mspace(void)
 
     og_pt2 = active_space_ptab();
     clone_pt2 = alloc_phys_pages(1);
+    memset(clone_pt2, 0, PAGE_SIZE);
 
     for (int i = 0; i < PTE_CNT; i++)
     {
@@ -340,6 +347,7 @@ mtag_t clone_active_mspace(void)
             // copy page
             og_pp = pageptr(og_pte->ppn);
             clone_pp = alloc_phys_pages(1);
+            memset(clone_pp, 0, PAGE_SIZE);
             memcpy(clone_pp, og_pp, PAGE_SIZE);
 
             // map clone
@@ -386,12 +394,16 @@ static struct pte * walk_pte(mtag_t mspace, uintptr_t vma)
     pte = &null;
 
     if (!PTE_VALID(pt2[VPN2(vma)]))
+    {
         return pte;
+    }
 
     pt1 = (struct pte *)pageptr(pt2[VPN2(vma)].ppn);
 
     if (!PTE_VALID(pt1[VPN1(vma)]))
+    {
         return pte;
+    }
 
     pt0 = (struct pte *)pageptr(pt1[VPN1(vma)].ppn);
     pte = &pt0[VPN0(vma)];
@@ -422,6 +434,7 @@ static struct pte * walk_and_alloc_pte(mtag_t mspace, uintptr_t vma)
     if (!PTE_VALID(pt2[VPN2(vma)]))
     {
         pp = alloc_phys_pages(1);
+        memset(pp, 0, PAGE_SIZE);
         pt2[VPN2(vma)] = ptab_pte(pp, 0);
     }
 
@@ -431,11 +444,13 @@ static struct pte * walk_and_alloc_pte(mtag_t mspace, uintptr_t vma)
     if (!PTE_VALID(pt1[VPN1(vma)]))
     {
         pp = alloc_phys_pages(1);
+        memset(pp, 0, PAGE_SIZE);
         pt1[VPN1(vma)] = ptab_pte(pp, 0);
     }
 
     pt0 = (struct pte *)pageptr(pt1[VPN1(vma)].ppn);
     pte = &pt0[VPN0(vma)];
+
     return pte;
 }
 
@@ -451,29 +466,38 @@ static struct pte * walk_and_alloc_pte(mtag_t mspace, uintptr_t vma)
 
 void * map_page(uintptr_t vma, void * pp, int rwxug_flags)
 {
-    return map_range(vma, PAGE_SIZE, pp, rwxug_flags);
+    struct pte * pte;
+
+    trace("%s(vma=%p, pp=%p, flags=%x)",
+            __func__, vma, pp, rwxug_flags);
+    assert (wellformed(vma));
+    assert (vma % PAGE_SIZE == 0);
+    assert ((uintptr_t)pp % PAGE_SIZE == 0);
+
+    pte = walk_and_alloc_pte(active_mspace(), vma);
+    *pte = leaf_pte(pp, rwxug_flags);
+
+    sfence_vma();
+
+    return (void *)vma;
 }
 
 void * map_range(uintptr_t vma, size_t size, void * pp, int rwxug_flags)
 {
-    struct pte * pte;
     uintptr_t offset;
 
     trace("%s(vma=%p, size=%ld, pp=%p, flags=%x)",
             __func__, vma, size, pp, rwxug_flags);
-    assert (wellformed(vma));
-    assert (vma % PAGE_SIZE == 0);
-    assert ((uintptr_t)pp % PAGE_SIZE == 0);
 
     size = ROUND_UP(size, PAGE_SIZE);
 
     for (offset = 0; offset < size; offset += PAGE_SIZE)
     {
-        pte = walk_and_alloc_pte(active_mspace(), vma + offset);
-        *pte = leaf_pte(pp + offset, rwxug_flags);
+        map_page(vma + offset, pp + offset, rwxug_flags);
     }
 
     sfence_vma();
+
     return (void *)vma;
 }
 
@@ -481,14 +505,21 @@ void * map_range(uintptr_t vma, size_t size, void * pp, int rwxug_flags)
 // memory address. Rounds up size to be a multiple of PAGE_SIZE.
 void * alloc_and_map_range(uintptr_t vma, size_t size, int rwxug_flags)
 {
-    void * pp;  // physical pointer
+    uintptr_t vptr; // virtual pointer
+    void * pp;      // physical pointer
 
     trace("%s(vma=%p, size=%zu, flags=%x)",
           __func__, vma, size, rwxug_flags);
 
     size = ROUND_UP(size, PAGE_SIZE);
-    pp = alloc_phys_pages(size / PAGE_SIZE);
-    map_range(vma, size, pp, rwxug_flags);
+
+    for (vptr = vma; vptr < vma + size; vptr += PAGE_SIZE)
+    {
+        pp = alloc_phys_pages(1);
+        memset(pp, 0, PAGE_SIZE);
+        map_page(vptr, pp, rwxug_flags);
+    }
+
     return (void *)vma;
 }
 
@@ -512,7 +543,9 @@ void set_range_flags(const void * vp, size_t size, int rwxug_flags)
         vma += PAGE_SIZE;
 
         if (PTE_VALID(*pte) && !PTE_GLOBAL(*pte))
+        {
             pte->flags = rwxug_flags | PTE_A | PTE_D | PTE_V;
+        }
     }
 
     sfence_vma();
@@ -587,7 +620,9 @@ void * alloc_phys_pages(unsigned int cnt)
     trace("%s(cnt=%d)", __func__, cnt);
 
     if (free_chunk_list == NULL)
-        panic("out of free memory");
+    {
+        panic("FATAL: out of free memory");
+    }
 
     current = free_chunk_list;
     prev = NULL;
@@ -598,13 +633,16 @@ void * alloc_phys_pages(unsigned int cnt)
 
     while (current != NULL)
     {
-        if (current->pagecnt >= cnt && current->pagecnt <= best->pagecnt)
+        if (current->pagecnt >= cnt &&
+            current->pagecnt <= best->pagecnt)
         {
             best = current;
             prev_best = prev;
 
             if (best->pagecnt == cnt)
+            {
                 break;
+            }
         }
 
         prev = current;
@@ -613,7 +651,7 @@ void * alloc_phys_pages(unsigned int cnt)
 
     if (best == &dummy)
     {
-        panic("could not find free pages");
+        panic("FATAL: could not find free pages");
     }
 
     debug("found chunk: pp=%p, pages=%d", best, best->pagecnt);
@@ -636,21 +674,22 @@ void * alloc_phys_pages(unsigned int cnt)
             prev_best->next = best->next;
         }
 
-        memset(best, 0, PAGE_SIZE * cnt);
         return (void *)best;
     }
 
     // otherwise split chunk by allocating lowest address
 
-    void * allocated = (void *)((uintptr_t)best + pages_left * PAGE_SIZE);
-    struct page_chunk * remaining = best;
+    struct page_chunk * allocated;
+    struct page_chunk * remaining;
+
+    allocated = (struct page_chunk *)((uintptr_t)best + pages_left * PAGE_SIZE);
+    remaining = best;
     remaining->pagecnt = pages_left;
 
     debug("allocated pp=%p", allocated);
     debug("remaining pp=%p", remaining);
-    memset(allocated, 0, PAGE_SIZE * cnt);
 
-    return allocated;
+    return (void *)allocated;
 }
 
 // Adds chunk consisting of passed count of pages at passed pointer back to
@@ -723,7 +762,7 @@ void free_phys_pages(void * pp, unsigned int cnt)
 unsigned long free_phys_page_count(void)
 {
     struct page_chunk * target;
-    unsigned long cnt;
+    uint64_t cnt;
 
     trace("%s()", __func__);
 
@@ -746,6 +785,9 @@ unsigned long free_phys_page_count(void)
 // fault is fatal and the process should be terminated.
 int handle_umode_page_fault(struct trap_frame * tfr, uintptr_t vma)
 {
+    struct pte * pte;
+    uint32_t cause;
+
     trace("%s(vma=%p)", vma);
 
     if (vma < UMEM_START_VMA || vma >= UMEM_END_VMA)
@@ -754,14 +796,12 @@ int handle_umode_page_fault(struct trap_frame * tfr, uintptr_t vma)
         return 0;
     }
 
-    struct pte * pte;
-
     vma = ROUND_DOWN(vma, PAGE_SIZE);
     pte = walk_pte(active_mspace(), vma);
 
     if (PTE_VALID(*pte))
     {
-        unsigned int cause = csrr_scause();
+        cause = csrr_scause();
 
         switch (cause)
         {

@@ -83,6 +83,7 @@ int process_exec(struct io * exeio, int argc, char ** argv)
 	// arguments, and mapping memory space
 
 	stack = alloc_phys_page();
+	memset(stack, 0, PAGE_SIZE);
 	stksz = build_stack(stack, argc, argv);
 	reset_active_mspace();
 	stkvptr = map_range(
@@ -125,8 +126,9 @@ int process_fork(const struct trap_frame * tfr)
 	struct condition forked;
 	int pn, fd, child_tid;
 
-	// find a free process
 	trace("%s()", __func__);
+
+	// find a free process
 
 	for (pn = 1; pn < NPROC; pn++)
 	{

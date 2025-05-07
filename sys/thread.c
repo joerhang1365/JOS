@@ -662,7 +662,9 @@ void thread_reclaim(int tid)
     for (ctid = 1; ctid < NTHR; ctid++)
     {
         if (thrtab[ctid] != NULL && thrtab[ctid]->parent == thr)
+        {
             thrtab[ctid]->parent = thr->parent;
+        }
     }
 
     thrtab[tid] = NULL;
@@ -682,17 +684,24 @@ struct thread * create_thread(const char * name)
 
     tid = 0;
     while (++tid < NTHR)
+    {
         if (thrtab[tid] == NULL)
+        {
             break;
+        }
+    }
 
     if (tid == NTHR)
+    {
         return NULL;
+    }
 
     // Allocate a struct thread and a stack
 
     thr = kcalloc(1, sizeof(struct thread));
 
     stack_page = alloc_phys_page();
+    memset(stack_page, 0, PAGE_SIZE);
     //stack_page = kmalloc(STACK_SIZE);
     anchor = stack_page + STACK_SIZE;
     anchor -= 1; // anchor is at base of stack
