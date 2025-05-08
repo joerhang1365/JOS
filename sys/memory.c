@@ -849,7 +849,8 @@ int memory_validate_vptr_len (
         pte = walk_pte(active_mspace(), vma + offset);
         offset += PAGE_SIZE;
 
-        if ((pte->flags & rwxug_flags) != rwxug_flags)
+        if (!PTE_VALID(*pte) ||
+            (pte->flags & rwxug_flags) != rwxug_flags)
         {
             return -EACCESS;
         }
@@ -872,21 +873,31 @@ int memory_validate_vstr (
 
     p = vs;
 
+    vma = ROUND_DOWN((uintptr_t)p, PAGE_SIZE);
+    pte = walk_pte(active_mspace(), vma);
+
+    if (!PTE_VALID(*pte) ||
+        (pte->flags & ug_flags) != ug_flags)
+    {
+        return -EACCESS;
+    }
+
     while (*p != '\0')
     {
-        vma = ROUND_DOWN((uintptr_t)p, PAGE_SIZE);
-        pte = walk_pte(active_mspace(), vma);
-
-        if ((pte->flags & ug_flags) != ug_flags)
-        {
-            return -EACCESS;
-        }
-
-        p += 1;
+         p += 1;
 
         if (p == NULL)
         {
             return -EINVAL;
+        }
+
+        vma = ROUND_DOWN((uintptr_t)p, PAGE_SIZE);
+        pte = walk_pte(active_mspace(), vma);
+
+        if (!PTE_VALID(*pte) ||
+            (pte->flags & ug_flags) != ug_flags)
+        {
+            return -EACCESS;
         }
     }
 

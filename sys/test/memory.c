@@ -67,7 +67,6 @@ void test_alloc_and_free() {
     free_phys_page_count();
 }
 
-
 void test_mapping() {
     // test single page
     void * pp1 = alloc_phys_pages(1);
@@ -110,42 +109,170 @@ void test_mapping() {
 
 }
 
-static void test_memory_validation(){
+static void test_memory_validation() {
     int result;
 
-    void * pp1 = alloc_phys_pages(1);
-    void * vp1 = map_page(UMEM_START_VMA, pp1, PTE_R | PTE_W | PTE_U);
+    uintptr_t vma;
+    void * vp;
 
-    int len = 9;
-    char * string = "hello world";
+    kprintf("TESTING memory_validate_vptr_len()\n");
 
-    memcpy(vp1, string, 9);
-    set_range_flags(vp1, PAGE_SIZE, PTE_R | PTE_U);
+    kprintf("test valid pointer\n");
 
-    result = memory_validate_vptr_len(vp1, len, PTE_R | PTE_W | PTE_U);
-    if (result < 0)
-        kprintf("test 1 failed\n");
+    vma = UMEM_START_VMA;
+    vp = alloc_and_map_range(vma, PAGE_SIZE, PTE_U | PTE_W | PTE_R);
+    result = memory_validate_vptr_len(vp, PAGE_SIZE, PTE_U | PTE_W | PTE_R);
+    kprintf("result=%d\n", result);
 
-    ((char *)vp1)[6] = 0;
+    if (result == 0)
+        kprintf("passed\n");
+    else
+        kprintf("failed\n");
 
-    result = memory_validate_vstr(vp1, PTE_U);
-    if (result < 0)
-        kprintf("test 2 failed\n");
+    kprintf("test null pointer\n");
 
-    void * pp2 = alloc_phys_pages(1);
-    void * vp2 = map_page(UMEM_START_VMA + PAGE_SIZE, pp2, PTE_R | PTE_W | PTE_U);
+    result = memory_validate_vptr_len(NULL, PAGE_SIZE, PTE_U | PTE_R);
+    kprintf("result=%d\n", result);
 
-    //(char *)vp2 = "a";
-    //char * string2 = (char *)vp2;
+    if (result == -EINVAL)
+        kprintf("passed\n");
+    else
+        kprintf("failed\n");
 
-    /*()result = memory_validate_vptr_len(vp1, 100, PTE_G | PTE_R | PTE_W | PTE_U);
-    if (result < 0)
-        kprintf("test 3 failed\n");
+    kprintf("test invalid permissions\n");
 
-    result = memory_validate_vstr(vp1, PTE_U);
-    if (result < 0)
-        kprintf("test 4 failed\n");
-*/
+    set_range_flags(vp, PAGE_SIZE, PTE_U | PTE_R);
+    result = memory_validate_vptr_len(vp, PAGE_SIZE, PTE_U | PTE_W);
+    kprintf("result=%d\n", result);
+
+    if (result == -EACCESS)
+        kprintf("passed\n");
+    else
+        kprintf("failed\n");
+
+    kprintf("test invalid address\n");
+
+    void * ptr = (void *)0x80000000;
+    result = memory_validate_vptr_len(ptr, PAGE_SIZE, PTE_U | PTE_R);
+    kprintf("result=%d\n", result);
+
+    if (result == -EACCESS)
+        kprintf("passed\n");
+    else
+        kprintf("failed\n");
+
+    kprintf("test zero length");
+    result = memory_validate_vptr_len(vp, 0, PTE_U | PTE_R);
+    kprintf("result=%d\n", result);
+
+    if (result == 0)
+        kprintf("passed\n");
+    else
+        kprintf("failed\n");
+
+    kprintf("TESTING memory_validate_vstr()\n");
+
+    kprintf("test valid string\n");
+
+    vma = UMEM_START_VMA + PAGE_SIZE;
+    vp = alloc_and_map_range(vma, PAGE_SIZE, PTE_U | PTE_R | PTE_W);
+    char * str = "hello world";
+    strncpy(vp, str, 12);
+    kprintf("vp=%s\n", vp);
+    result = memory_validate_vstr(vp, PTE_U);
+    kprintf("result=%d\n", result);
+
+    if (result == 0)
+        kprintf("passed\n");
+    else
+        kprintf("failed\n");
+
+    kprintf("test null string\n");
+
+    result = memory_validate_vstr(NULL, PTE_U);
+    kprintf("result=%d\n", result);
+
+    if (result == -EINVAL)
+        kprintf("passed\n");
+    else
+        kprintf("failed\n");
+
+    kprintf("test invalid permissions string\n");
+
+    // kernel stack
+    char * k_str = "wut";
+    result = memory_validate_vstr(k_str, PTE_U);
+    kprintf("result=%d\n", result);
+
+    if (result == -EACCESS)
+        kprintf("passed\n");
+    else
+        kprintf("failed\n");
+
+    kprintf("tset invalid string\n");
+
+    vma = UMEM_START_VMA + PAGE_SIZE * 2;
+    vp = alloc_and_map_range(vma, PAGE_SIZE, PTE_U | PTE_R | PTE_W);
+    //memset(vp, "e", PAGE_SIZE - 1);
+    for (uintptr_t i = 0; i < PAGE_SIZE; i++)
+        ((char *)vp)[i] = 'e';
+    //kprintf("%s\n", vp);
+
+    result = memory_validate_vstr(vp, PTE_U);
+    kprintf("result=%d\n", result);
+
+    if (result == -EACCESS)
+        kprintf("passed\n");
+    else
+        kprintf("failed\n");
+}
+
+static void test_coalescing()
+{
+    void * pp1;
+    void * pp2;
+    void * pp3;
+    void * pp4;
+    void * pp5;
+
+    long cnt;
+
+    cnt = free_phys_page_count();
+
+    kprintf("allocating 5 pages\n");
+
+    pp1 = alloc_phys_pages(1);
+    pp2 = alloc_phys_pages(1);
+    pp3 = alloc_phys_pages(1);
+    pp4 = alloc_phys_pages(1);
+    pp5 = alloc_phys_pages(1);
+
+    cnt = free_phys_page_count();
+
+    kprintf("freeing chunk 1 pp=%p\n", pp1);
+    free_phys_pages(pp1, 1);
+
+    cnt = free_phys_page_count();
+
+    kprintf("freeing chunk 2 pp=%p\n", pp2);
+    free_phys_pages(pp2, 1);
+
+    cnt = free_phys_page_count();
+
+    kprintf("freeing chunk 4 pp=%p\n", pp4);
+    free_phys_pages(pp4, 1);
+
+    cnt = free_phys_page_count();
+
+    kprintf("freeing chunk 5 pp=%p\n", pp5);
+    free_phys_pages(pp5, 1);
+
+    cnt = free_phys_page_count();
+
+    kprintf("freeing chunk 3 pp=%p\n", pp3);
+    free_phys_pages(pp3, 1);
+
+    cnt = free_phys_page_count();
 }
 
 static void test_clone_memory() {
