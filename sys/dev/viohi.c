@@ -66,3 +66,15 @@ struct viohi_device
     } vq;
 
 }
+
+static int viohi_open(struct io ** ioptr, void * aux);
+static void viohi_close(struct io * io);
+static long viohi_read(struct io * io, void * buf, long bufsz);
+static int viohi_cntl(struct io * io, int cmd, void * arg);
+
+static void viohi_isr(int srcno, void * aux);
+
+void viohi_attach(virtio_mmio_regs * regs, int irqno)
+{
+
+}

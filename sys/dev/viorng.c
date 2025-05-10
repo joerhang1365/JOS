@@ -32,9 +32,6 @@
 #define VIORNG_IRQ_PRIO 1
 #endif
 
-#define VIRTQ_USED_F_NO_NOTIFY      1
-#define VIRTQ_AVAIL_F_NO_INTERRUPT  1
-
 // INTERNAL TYPE DEFINITIONS
 //
 
@@ -182,7 +179,7 @@ void viorng_attach(volatile struct virtio_mmio_regs * regs, int irqno)
 //       void * aux
 // return: int [returns 0 on success]
 
-static int viorng_open(struct io ** ioptr, void * aux)
+int viorng_open(struct io ** ioptr, void * aux)
 {
     struct viorng_device * const viorng = aux;
 
@@ -203,7 +200,7 @@ static int viorng_open(struct io ** ioptr, void * aux)
 // args: struct io * io
 // return: void
 
-static void viorng_close(struct io * io)
+void viorng_close(struct io * io)
 {
     trace("%s()",__func__);
     assert(io != NULL && iorefcnt(io) == 0);
@@ -227,7 +224,7 @@ static void viorng_close(struct io * io)
 //       long bufsz
 // return: long [number of bytes read]
 
-static long viorng_read(struct io * io, void * buf, long bufsz)
+long viorng_read(struct io * io, void * buf, long bufsz)
 {
     struct viorng_device * const viorng =
         (void*)io - offsetof(struct viorng_device, io);
@@ -310,7 +307,7 @@ static long viorng_read(struct io * io, void * buf, long bufsz)
 //       void * aux
 // return: void
 
-static void viorng_isr(int irqno, void * aux)
+void viorng_isr(int irqno, void * aux)
 {
     struct viorng_device * viorng = aux;
 

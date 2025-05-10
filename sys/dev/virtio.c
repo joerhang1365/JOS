@@ -130,17 +130,83 @@ int virtio_negotiate_features (
     return 0;
 }
 
+struct virtqueue * virtio_create_virtq(int len)
+{
+    struct virtqueue * virtq;
+    uint32_t desc_size, avail_size, used_size, desc_virt_size;
+    int i;
+
+    // calcuate alignments
+
+    desc_size = ALIGN(len * sizeof(struct virtq_desc), 4);
+    avail_size = ALIGN(sizeof(struct virtq_avail) + len * sizeof(uint16_t), 4);
+    used_size = ALIGN(sizeof(struct virtq_used) + len * sizeof(struct virtq_used_elem), 4);
+    desc_virt_size = ALIGN(len * sizeof(void *))
+
+    virtq = kcalloc(1, desc_size + avail_size + used_size + desc_virt_size);
+
+    if (virtq == NULL)
+    {
+        kprintf("ERROR: virtqueue failed to allocate memory\n");
+        return NULL;
+    }
+
+    virtq->len = len;
+
+    virtq->desc = (struct virtq_desc *)((char *)virtq + sizeof(struct virtqueue));
+    virtq->avail = (struct virtq_avail *)((char *)virtq->desc + desc_size);
+    virtq->used = (struct virtq_used *)((char *)virtq->avail + avail_size);
+    virtq->desc_virt = (void **)((char *)virtq->used + used_size);
+
+    for (i = 0; i < len - 1; i++)
+    {
+        virtq->desc[i].next = i + 1;
+    }
+
+    virtq->desc[len - 1].next = 0;
+    virtq->free_desc = 0;
+
+    virtq->avail->idx = 0;
+    virtq->used->idx = 0;
+    virtq->seen_used = virtq->used->idx;
+
+    return virtq;
+}
+
 void virtio_attach_virtq (
-    volatile struct virtio_mmio_regs * regs, int qid, uint_fast16_t len,
-    uint64_t desc_addr, uint64_t used_addr, uint64_t avail_addr)
+    volatile struct virtio_mmio_regs * regs, struct virtqueue * virtq, int qid)
 {
     regs->queue_sel = qid;
     __sync_synchronize(); // fence o,o
-    regs->queue_desc = desc_addr;
-    regs->queue_device = used_addr;
-    regs->queue_driver = avail_addr;
-    regs->queue_num = len;
+    regs->queue_num = virtq->len;
+    regs->queue_desc = vritq->desc;
+    regs->queue_device = virtq->used;
+    regs->queue_driver = virtq->avail;
     __sync_synchronize(); // fence o,o
+}
+
+int virtio_alloc_virtq_desc(struct virtqueue * virtq, void * addr)
+{
+    uint32_t desc = virtq->free_desc;
+    uint32_t next = virtq->desc[desc].next;
+
+    if (next == virtq->len)
+    {
+        kprintf("ERROR: ran out of virtqueue descriptors\n");
+    }
+
+    virtq->free_desc = next;
+    virtq->desc[desc].addr = addr;
+    virtq->desc_virt[desc] = addr;
+
+    return desc;
+}
+
+void virtio_free_virtq_desc(struct virtqueue * virtq, int desc)
+{
+    virtq->desc[desc].next = virtq->free_desc;
+    virtq->free_desc = desc;
+    virtq->desc_virt[desc] = NULL;
 }
 
 // The following provide weak no-op attach functions that are overridden if the

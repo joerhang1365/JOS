@@ -66,6 +66,9 @@
 #define UMEM_END ((void*)UMEM_END_VMA)
 #define UMEM_SIZE (UMEM_END - UMEM_START)
 
+#define ALIGN(x, a) __ALIGN_MASK(x, (typeof(x))(a) - 1)
+#define __ALIGN_MASK(x, mask) (((x) + (mask)) & ~(mask))
+
 // Maximum number of devices
 
 #ifndef NDEV

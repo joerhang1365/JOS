@@ -32,42 +32,35 @@
 #define VIRTQ_DESC_F_WRITE      	(1 << 1)
 #define VIRTQ_DESC_F_INDIRECT		(1 << 2)
 
-#define VIRTQ_INTR_USED             (1 << 0)
-#define VIRTQ_INTR_CONF             (1 << 1)
-
 #define VIRTIO_FEATLEN  4    // length of feature vector
 #define VIRTQ_DESC_SIZE 16
+
+#define VIRTQ_AVAIL_F_NO_INTERRUPT 1
+#define VIRTQ_USED_F_NO_NOTIFY 1
 
 // EXPORTED TYPE DEFINITIONS
 //
 
 typedef uint32_t virtio_featset_t[VIRTIO_FEATLEN];
 
-struct virtio_mmio_regs
+struct __attribute__((packed)) virtio_mmio_regs
 {
     uint32_t magic_value;           // R  Magic value
     uint32_t version;               // R  Device version number
     uint32_t device_id;             // R  Virtio Subsystem Device ID
     uint32_t vendor_id;             // R  Virtio Subsystem Vendor ID
     uint32_t device_features;       // R  Flags representing features the device supports
-
     uint32_t device_features_sel;   // W  Device (host) features word selection.
-
     uint32_t _reserved_0x18[2];
-    uint32_t driver_features;       // W  Flags representing device features understood and activated by the driver
-
+    uint32_t driver_features;       // W  Flags representing device features understood and 
+                                    // activated by the driver
     uint32_t driver_features_sel;   // W  Activated (guest) features word selection
-
     uint32_t _reserved_0x28[2];
     uint32_t queue_sel;             // W  Virtual queue index
-
     uint32_t queue_num_max;         // R  Maximum virtual queue size
-
     uint32_t queue_num;             // W  Virtual queue size
-
     uint32_t _reserved_0x3c[2];
     uint32_t queue_ready;           // RW Virtual queue ready bit
-
     uint32_t _reserved_0x48[2];
     uint32_t queue_notify;          // W  Queue notifier
     uint32_t _reserved_0x54[3];
@@ -76,7 +69,8 @@ struct virtio_mmio_regs
     uint32_t _reserved_0x68[2];
     uint32_t status;                // RW Device status
     uint32_t _reserved_0x74[3];
-    uint64_t queue_desc;            // W  Virtual queue’s Descriptor Area 64 bit long physical address
+    uint64_t queue_desc;            // W  Virtual queue’s Descriptor Area 64 bit
+                                    // long physical address
     uint32_t _reserved_0x8c[2];
     uint64_t queue_driver;          // W  Virtual queue’s Driver Area 64 bit long physical address
     uint32_t _reserved_0x9c[2];
@@ -86,96 +80,50 @@ struct virtio_mmio_regs
     uint64_t shm_base;              // R  Shared memory region 64 bit long physical address
     uint32_t queue_reset;           // RW Virtual queue reset bit
     uint32_t _reserved_0xc4[14];
-
-    union
-    {
-        // Block device config
-        struct
-        {
-            uint64_t capacity;
-            uint32_t size_max;
-            uint32_t seg_max;
-            struct
-            {
-                uint16_t cylinders;
-                uint8_t heads;
-                uint8_t sectors;
-            }
-            geometry;
-
-            uint32_t blk_size;
-            struct
-            {
-                uint8_t physical_block_exp;
-                uint8_t alignment_offset;
-                uint16_t min_io_size;
-                uint32_t opt_io_size;
-            }
-            topology;
-
-            uint8_t writeback;
-            char unused0;
-            uint16_t num_queues;
-            uint32_t max_discard_sectors;
-            uint32_t max_discard_seg;
-            uint32_t discard_sector_alignment;
-            uint32_t max_write_zeroes_sectors;
-            uint32_t max_write_zeroes_seg;
-            uint8_t write_zeroes_may_unmap;
-            char unused1[3];
-            uint32_t max_secure_erase_sectors;
-            uint32_t max_secure_erase_seg;
-            uint32_t secure_erase_sector_alignment;
-        }
-        blk;
-
-        uint8_t raw[0];
-    }
-    config;
+    uint32_t config_generation;
+    uint32_t config[0];
 };
 
-struct virtq_desc
+struct __attribute__((packed)) virtq_desc
 {
-    uint64_t addr; // Address (guest-physical).
-    uint32_t len; // Length
+    uint64_t addr;  // Address (guest-physical).
+    uint32_t len;   // Length
     uint16_t flags; // The flags as indicated above.
-    int16_t next; // We chain unused descriptors via this, too
+    int16_t next;   // We chain unused descriptors via this, too
 };
 
-struct virtq_avail
+struct __attribute__((packed)) virtq_avail
 {
     uint16_t flags;
     uint16_t idx;
     uint16_t ring[];
 };
 
-// VIRTQ_AVAIL_SIZE(n)
-// Evaluates to a compile-time constant giving the size of a virtq avail ring
-// sized for /n/ elements.
-
-#define VIRTQ_AVAIL_SIZE(n) \
-    (sizeof(struct virtq_avail)+(n)*sizeof(uint16_t))
-
-struct virtq_used_elem
+struct __attribute__((packed)) virtq_used_elem
 {
     uint32_t id; // Index of start of used descriptor chain
     uint32_t len; // Total length of the descriptor chain which was written to
 };
 
-struct virtq_used
+struct __attribute__((packed)) virtq_used
 {
     uint16_t flags;
     uint16_t idx;
     struct virtq_used_elem ring[];
 };
 
-// VIRTQ_USED_SIZE(n)
-// Evaluates to a compile-time constant giving the size of a virtq used ring
-// sized for /n/ elements.
+struct __attribute__((packed)) virtqueue
+{
+    uint32_t len;
+    uint32_t last_used;
+    uint32_t free_desc;
 
-#define VIRTQ_USED_SIZE(n) \
-    (sizeof(struct virtq_used)+(n)*sizeof(struct virtq_used_elem))
+    volatile struct virtq_desc * desc;
+    volatile struct virtq_avail * avail;
+    volatile struct virtq_used * used;
 
+    void ** desc_virt;
+};
 
 // EXPORTED FUNCTION DEFINITIONS
 //
@@ -194,9 +142,10 @@ extern int virtio_negotiate_features (
 static inline void virtio_notify_avail (
     volatile struct virtio_mmio_regs * regs, int qid);
 
+extern struct virtqueue * virtio_create_virtq(int len);
+
 extern void virtio_attach_virtq (
-    volatile struct virtio_mmio_regs * regs, int qid, uint_fast16_t len,
-    uint64_t desc_addr, uint64_t used_addr, uint64_t avail_addr);
+    volatile struct virtio_mmio_regs * regs, struct virtqueu * virtq, int qid);
 
 static inline void virtio_enable_virtq (
     volatile struct virtio_mmio_regs * regs, int qid);
@@ -204,11 +153,12 @@ static inline void virtio_enable_virtq (
 static inline void virtio_reset_virtq (
     volatile struct virtio_mmio_regs * regs, int qid);
 
+int virtio_alloc_virtq_desc(struct virtqueue * virtq, void * addr);
+void virtio_free_virtq_desc(struct virtqueue * virtq, int desc);
+
 static inline void virtio_featset_init(virtio_featset_t fts);
 static inline void virtio_featset_add(virtio_featset_t fts, uint_fast16_t k);
 static inline int virtio_featset_test(virtio_featset_t fts, uint_fast16_t k);
-
-
 
 // VIRTIO DEVICE ID LIST
 //
@@ -258,16 +208,15 @@ static inline int virtio_featset_test(virtio_featset_t fts, uint_fast16_t k);
 #define VIRTIO_ID_BT                    40 /* virtio bluetooth */
 #define VIRTIO_ID_GPIO                  41 /* virtio gpio */
 
-
 // INLINE FUNCTION DEFINITIONS
 //
 
 static inline int virtio_check_feature (
     volatile struct virtio_mmio_regs * regs, uint_fast16_t k)
 {
-    regs->device_features_sel = k/32;
+    regs->device_features_sel = k / 32;
     __sync_synchronize(); // fence o,i
-    return ((regs->device_features >> (k%32)) & 1);
+    return ((regs->device_features >> (k % 32)) & 1);
 }
 
 static void virtio_notify_avail (
@@ -298,17 +247,19 @@ static inline void virtio_featset_init(virtio_featset_t fts)
     uint_fast8_t i;
 
     for (i = 0; i < VIRTIO_FEATLEN; i++)
+    {
         fts[i] = 0;
+    }
 }
 
 static inline void virtio_featset_add(virtio_featset_t fts, uint_fast16_t k)
 {
-    fts[k/32] |= UINT32_C(1) << (k%32);
+    fts[k / 32] |= UINT32_C(1) << (k % 32);
 }
 
 static inline int virtio_featset_test(virtio_featset_t fts, uint_fast16_t k)
 {
-    return ((fts[k/32] >> (k%32)) & 1);
+    return ((fts[k / 32] >> (k % 32)) & 1);
 }
 
 #endif // _VIRTIO_H_

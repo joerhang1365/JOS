@@ -83,8 +83,8 @@ void main(void)
     //test_zork();
     //test_rogue();
     //test_shit_shell();
-    test_shell();
-    //test_doom();
+    //test_shell();
+    test_doom();
     //test_skyline();
     //test_fib();
     //test_trekfib();
