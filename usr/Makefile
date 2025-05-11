@@ -30,7 +30,8 @@ ALL_TARGETS = \
 	fib \
 	trekfib \
 	trek_wrapper \
-	shell \
+	init \
+	shell.elf \
 
 CFLAGS = -Wall -fno-omit-frame-pointer -ggdb3 -gdwarf-2
 CFLAGS += -mcmodel=medany -fno-pie -no-pie -march=rv64g -mabi=lp64d
@@ -50,10 +51,14 @@ bin:
 	mkdir $@
 
 clean:
-	rm -rf *.o test/*.o *.elf *.asm
+	rm -rf *.o *.elf *.asm test/*.o
 
-# shell
-shell: $(ULIB_OBJS) shell.o | bin
+# user programs
+
+init: $(ULIB_OBJS) init.o | bin
+	$(LD) -T $(ULIB_LD) -o bin/$@ $^
+
+shell.elf: $(ULIB_OBJS) shell.o | bin
 	$(LD) -T $(ULIB_LD) -o bin/$@ $^
 
 hello: $(ULIB_OBJS) test/hello.o | bin
@@ -74,4 +79,3 @@ trek_wrapper: $(ULIB_OBJS) test/trek_wrapper.o | bin
 # test syscalls
 syscall: $(ULIB_OBJS) test/syscall.o | bin
 	$(LD) -T $(ULIB_LD) -o bin/$@ $^
-

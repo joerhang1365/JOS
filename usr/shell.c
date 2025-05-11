@@ -5,17 +5,50 @@
 #include "error.h"
 #include "string.h"
 
+#define SHELL_EXIT 1
+#define SHELL_BUILTIN 2
+
+int shell_null(char ** args);
+int shell_cd(char ** args);
+int shell_ls(char ** args);
+int shell_help(char ** args);
+int shell_exit(char ** args);
+
+char * builtin_str[] =
+{
+    "\0",
+    "cd",
+    "ls",
+    "help",
+    "exit"
+};
+
+int (* builtin_func[]) (char **) =
+{
+    &shell_null,
+    &shell_cd,
+    &shell_ls,
+    &shell_help,
+    &shell_exit
+};
+
 int main(void) {
     char cmdbuf[32];
     char * args[32];
     int argc;
     int fd;
     int child_tid;
+    int i;
+    int result;
 
-    _close(1); // close nullio on descr. 1 (stdout)
-    _iodup(2, 1); // send stdout to console also
+    printf("  #  #   ##\n");
+    printf("  # # # #  \n");
+    printf("  # # #  # \n");
+    printf("  # # #   #\n");
+    printf("###  #  ## \n");
 
-    for (;;) {
+    while (1)
+    {
         printf("goober$ ");
         getsn(cmdbuf, sizeof(cmdbuf));
 
@@ -25,39 +58,103 @@ int main(void) {
         // split command into words seperated by spaces
         args[0] = cmdbuf;
         for (argc = 1; (args[argc] = strchr(args[argc - 1], ' ')); ++argc)
+        {
             *(args[argc]++) = '\0';
+        }
 
-        // commands
 
-        if (strcmp(args[0], "\0") == 0) {
-            continue;
-        } else if (strcmp(args[0], "q") == 0 || strcmp(args[0], "quit") == 0) {
+        // builtin commands
+
+        int builtin_count = sizeof(builtin_str) / sizeof(char *);
+        result = 0;
+
+        for (i = 0; i < builtin_count; i++)
+        {
+            if (strcmp(args[0], builtin_str[i]) == 0)
+            {
+                result = (*builtin_func[i])(args);
+                break;
+            }
+        }
+
+        if (result == SHELL_EXIT)
+        {
             break;
+        }
+        else if (result == SHELL_BUILTIN)
+        {
+            continue;
         }
 
         // open and fork
 
         fd = _fsopen(-1, args[0]);
 
-        if (fd < 0) {
+        if (fd < 0)
+        {
             printf("%s: ERROR %d\n", args[0], fd);
             continue;
         }
 
         child_tid = _fork();
 
-        if (child_tid == 0) {           // child
+        if (child_tid == 0) // child
+        {
             _exec(fd, argc, args);
             printf("exec failed\n");
             _exit();
-        } else if (child_tid > 0)  {    // parent
+        }
+        else if (child_tid > 0) // parent
+        {
+            _close(fd);
             _wait(child_tid);
             printf("%d child exited\n", child_tid);
             // TODO: flush
-        } else {
+        }
+        else
+        {
             printf("ERROR: %d fork failed\n", child_tid);
         }
     }
 
     return 0;
+}
+
+int shell_null(char ** args)
+{
+    return SHELL_BUILTIN;
+}
+
+int shell_cd(char ** args)
+{
+    printf("cd time\n");
+    return SHELL_BUILTIN;
+}
+
+int shell_ls(char ** args)
+{
+    printf("ls time\n");
+    return SHELL_BUILTIN;
+}
+
+int shell_help(char ** args)
+{
+    int i;
+
+    printf("Welcome to JOS\n");
+    printf("You are on your own buddy\n");
+
+    int builtin_count = sizeof(builtin_str) / sizeof(char *);
+
+    for (i = 0; i < builtin_count; i++)
+    {
+        printf("  %s\n", builtin_str[i]);
+    }
+
+    return SHELL_BUILTIN;
+}
+
+int shell_exit(char ** args)
+{
+    return SHELL_EXIT;
 }

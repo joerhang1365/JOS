@@ -17,13 +17,10 @@
 
 #define NUM_UARTS 5
 
-void interrupter();
-
 void test_syscall();
 void test_trek_cp2();
 void test_zork();
 void test_rogue();
-void test_shit_shell();
 void test_shell();
 void test_doom();
 void test_skyline();
@@ -36,6 +33,7 @@ extern char _kimg_end[];
 void main(void)
 {
     struct io * blkio;
+    struct io * initio;
     int result;
     int i;
 
@@ -78,12 +76,20 @@ void main(void)
         panic("Failed to open UART\n");
     }
 
+    result = fsopen("init", &initio);
+    if (result < 0)
+    {
+        kprintf("Error: %d\n", result);
+        panic("Failed to open init file\n");
+    }
+
+    process_exec(initio, 0, NULL);
+
     //test_syscall();
     //test_trek_cp2();
     //test_zork();
     //test_rogue();
-    //test_shit_shell();
-    test_shell();
+    //test_shell();
     //test_doom();
     //test_skyline();
     //test_fib();
@@ -174,7 +180,7 @@ void test_rogue()
     process_exec(rogueio, argc, argv);
 }
 
-void test_shit_shell()
+void test_shell()
 {
     struct io * shellio;
     char * argv[3];
@@ -192,26 +198,6 @@ void test_shit_shell()
 
     process_exec(shellio, argc, argv);
 }
-
-void test_shell()
-{
-    struct io * shellio;
-    char * argv[3];
-    int argc;
-    int result;
-
-    argv[0] = NULL;
-    argc = 0;
-    result = fsopen("shell", &shellio);
-
-    if (result < 0) {
-        kprintf("Error: %d\n", result);
-        panic("Failed to open shell");
-    }
-
-    process_exec(shellio, argc, argv);
-}
-
 
 void test_doom()
 {

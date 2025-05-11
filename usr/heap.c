@@ -48,7 +48,7 @@ void * malloc(size_t size) {
 
     ptr = heap_low;
     heap_low += size;
-    
+
     return ptr;
 }
 
@@ -58,7 +58,7 @@ void * calloc(size_t nelts, size_t eltsz) {
     size =  nelts * eltsz;
 
     ptr = malloc(size);
-    
+
     // check if malloc allocated any memory
     if (!ptr) return NULL;
 

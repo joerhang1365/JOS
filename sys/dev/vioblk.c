@@ -206,7 +206,6 @@ void vioblk_attach(volatile struct virtio_mmio_regs * regs, int irqno)
 {
     struct vioblk_device * vioblk;
     struct vioblk_config * conf;
-    uint32_t blk_size;
     int result;
 
     assert (regs->device_id == VIRTIO_ID_BLOCK);
@@ -235,19 +234,15 @@ void vioblk_attach(volatile struct virtio_mmio_regs * regs, int irqno)
 
     conf = (struct vioblk_config *)regs->config;
 
-    // check if the device provides a block size
+    // if device does not provide a block size set a default
     // does not effect requests but will change read and write
-    if (virtio_featset_test(enabled_features, VIRTIO_BLK_F_BLK_SIZE))
+    if (!virtio_featset_test(enabled_features, VIRTIO_BLK_F_BLK_SIZE))
     {
-        blk_size = conf->blk_size;
-    }
-    else
-    {
-        blk_size = 512;
+        conf->blk_size = 512;
     }
 
     // block size must be a power of two
-    assert (((blk_size - 1) & blk_size) == 0);
+    assert (((conf->blk_size - 1) & conf->blk_size) == 0);
 
     // initialize and attach vioblk device
 

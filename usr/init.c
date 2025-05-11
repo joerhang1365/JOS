@@ -2,7 +2,7 @@
 #include "syscall.h"
 
 void main(void) {
-    char * argv[] = { "trek_cp2", NULL };
+    char * argv[] = { "shell.elf", NULL };
     int result;
     int k = 0;
 
