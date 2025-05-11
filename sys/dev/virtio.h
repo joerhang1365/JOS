@@ -49,25 +49,20 @@ struct virtio_mmio_regs
     uint32_t version;               // R  Device version number
     uint32_t device_id;             // R  Virtio Subsystem Device ID
     uint32_t vendor_id;             // R  Virtio Subsystem Vendor ID
-    uint32_t device_features;       // R  Flags representing features the device supports
-
+    uint32_t device_features;       // R  Flags representing features the 
+                                    // device supports
     uint32_t device_features_sel;   // W  Device (host) features word selection.
-
     uint32_t _reserved_0x18[2];
-    uint32_t driver_features;       // W  Flags representing device features understood and activated by the driver
-
-    uint32_t driver_features_sel;   // W  Activated (guest) features word selection
-
+    uint32_t driver_features;       // W  Flags representing device features
+                                    // understood and activated by the driver
+    uint32_t driver_features_sel;   // W  Activated (guest) features word 
+                                    // selection
     uint32_t _reserved_0x28[2];
     uint32_t queue_sel;             // W  Virtual queue index
-
     uint32_t queue_num_max;         // R  Maximum virtual queue size
-
     uint32_t queue_num;             // W  Virtual queue size
-
     uint32_t _reserved_0x3c[2];
     uint32_t queue_ready;           // RW Virtual queue ready bit
-
     uint32_t _reserved_0x48[2];
     uint32_t queue_notify;          // W  Queue notifier
     uint32_t _reserved_0x54[3];
@@ -76,70 +71,29 @@ struct virtio_mmio_regs
     uint32_t _reserved_0x68[2];
     uint32_t status;                // RW Device status
     uint32_t _reserved_0x74[3];
-    uint64_t queue_desc;            // W  Virtual queue’s Descriptor Area 64 bit long physical address
+    uint64_t queue_desc;            // W  Virtual queue’s Descriptor Area
+                                    // 64 bit long physical address
     uint32_t _reserved_0x8c[2];
-    uint64_t queue_driver;          // W  Virtual queue’s Driver Area 64 bit long physical address
+    uint64_t queue_driver;          // W  Virtual queue’s Driver Area 64 bit 
+                                    // long physical address
     uint32_t _reserved_0x9c[2];
-    uint64_t queue_device;          // W  Virtual queue’s Device Area 64 bit long physical address
+    uint64_t queue_device;          // W  Virtual queue’s Device Area 64 bit 
+                                    // long physical address
     uint32_t shm_sel;               // W  Shared memory id
     uint64_t shm_len;               // R  Shared memory region 64 bit long length
     uint64_t shm_base;              // R  Shared memory region 64 bit long physical address
     uint32_t queue_reset;           // RW Virtual queue reset bit
     uint32_t _reserved_0xc4[14];
-
-    union
-    {
-        // Block device config
-        struct
-        {
-            uint64_t capacity;
-            uint32_t size_max;
-            uint32_t seg_max;
-            struct
-            {
-                uint16_t cylinders;
-                uint8_t heads;
-                uint8_t sectors;
-            }
-            geometry;
-
-            uint32_t blk_size;
-            struct
-            {
-                uint8_t physical_block_exp;
-                uint8_t alignment_offset;
-                uint16_t min_io_size;
-                uint32_t opt_io_size;
-            }
-            topology;
-
-            uint8_t writeback;
-            char unused0;
-            uint16_t num_queues;
-            uint32_t max_discard_sectors;
-            uint32_t max_discard_seg;
-            uint32_t discard_sector_alignment;
-            uint32_t max_write_zeroes_sectors;
-            uint32_t max_write_zeroes_seg;
-            uint8_t write_zeroes_may_unmap;
-            char unused1[3];
-            uint32_t max_secure_erase_sectors;
-            uint32_t max_secure_erase_seg;
-            uint32_t secure_erase_sector_alignment;
-        }
-        blk;
-
-        uint8_t raw[0];
-    }
-    config;
+    uint32_t config_generation;
+    uint32_t config[0];
 };
 
 struct virtq_desc
 {
-    uint64_t addr; // Address (guest-physical).
-    uint32_t len; // Length
+    uint64_t addr;  // Address (guest-physical).
+    uint32_t len;   // Length
     uint16_t flags; // The flags as indicated above.
-    int16_t next; // We chain unused descriptors via this, too
+    int16_t next;   // We chain unused descriptors via this, too
 };
 
 struct virtq_avail
@@ -149,17 +103,15 @@ struct virtq_avail
     uint16_t ring[];
 };
 
-// VIRTQ_AVAIL_SIZE(n)
 // Evaluates to a compile-time constant giving the size of a virtq avail ring
 // sized for /n/ elements.
 
-#define VIRTQ_AVAIL_SIZE(n) \
-    (sizeof(struct virtq_avail)+(n)*sizeof(uint16_t))
+#define VIRTQ_AVAIL_SIZE(n) (sizeof(struct virtq_avail)+(n)*sizeof(uint16_t))
 
 struct virtq_used_elem
 {
-    uint32_t id; // Index of start of used descriptor chain
-    uint32_t len; // Total length of the descriptor chain which was written to
+    uint32_t id;    // Index of start of used descriptor chain
+    uint32_t len;   // Total length of the descriptor chain which was written to
 };
 
 struct virtq_used
@@ -169,13 +121,11 @@ struct virtq_used
     struct virtq_used_elem ring[];
 };
 
-// VIRTQ_USED_SIZE(n)
 // Evaluates to a compile-time constant giving the size of a virtq used ring
 // sized for /n/ elements.
 
 #define VIRTQ_USED_SIZE(n) \
     (sizeof(struct virtq_used)+(n)*sizeof(struct virtq_used_elem))
-
 
 // EXPORTED FUNCTION DEFINITIONS
 //
@@ -208,56 +158,53 @@ static inline void virtio_featset_init(virtio_featset_t fts);
 static inline void virtio_featset_add(virtio_featset_t fts, uint_fast16_t k);
 static inline int virtio_featset_test(virtio_featset_t fts, uint_fast16_t k);
 
-
-
 // VIRTIO DEVICE ID LIST
 //
 
-#define VIRTIO_ID_NONE                  0 /* no device */
+#define VIRTIO_ID_NONE                  0   // no device
 
 // VirtIO Device IDs from Linux (virtio_ids.h). See end of file for that header
 // and license.
 
-#define VIRTIO_ID_NET                   1 /* virtio net */
-#define VIRTIO_ID_BLOCK                 2 /* virtio block */
-#define VIRTIO_ID_CONSOLE               3 /* virtio console */
-#define VIRTIO_ID_RNG                   4 /* virtio rng */
-#define VIRTIO_ID_BALLOON               5 /* virtio balloon */
-#define VIRTIO_ID_IOMEM                 6 /* virtio ioMemory */
-#define VIRTIO_ID_RPMSG                 7 /* virtio remote processor messaging */
-#define VIRTIO_ID_SCSI                  8 /* virtio scsi */
-#define VIRTIO_ID_9P                    9 /* 9p virtio console */
-#define VIRTIO_ID_MAC80211_WLAN         10 /* virtio WLAN MAC */
-#define VIRTIO_ID_RPROC_SERIAL          11 /* virtio remoteproc serial link */
-#define VIRTIO_ID_CAIF                  12 /* Virtio caif */
-#define VIRTIO_ID_MEMORY_BALLOON        13 /* virtio memory balloon */
-#define VIRTIO_ID_GPU                   16 /* virtio GPU */
-#define VIRTIO_ID_CLOCK                 17 /* virtio clock/timer */
-#define VIRTIO_ID_INPUT                 18 /* virtio input */
-#define VIRTIO_ID_VSOCK                 19 /* virtio vsock transport */
-#define VIRTIO_ID_CRYPTO                20 /* virtio crypto */
-#define VIRTIO_ID_SIGNAL_DIST           21 /* virtio signal distribution device */
-#define VIRTIO_ID_PSTORE                22 /* virtio pstore device */
-#define VIRTIO_ID_IOMMU                 23 /* virtio IOMMU */
-#define VIRTIO_ID_MEM                   24 /* virtio mem */
-#define VIRTIO_ID_SOUND                 25 /* virtio sound */
-#define VIRTIO_ID_FS                    26 /* virtio filesystem */
-#define VIRTIO_ID_PMEM                  27 /* virtio pmem */
-#define VIRTIO_ID_RPMB                  28 /* virtio rpmb */
-#define VIRTIO_ID_MAC80211_HWSIM        29 /* virtio mac80211-hwsim */
-#define VIRTIO_ID_VIDEO_ENCODER         30 /* virtio video encoder */
-#define VIRTIO_ID_VIDEO_DECODER         31 /* virtio video decoder */
-#define VIRTIO_ID_SCMI                  32 /* virtio SCMI */
-#define VIRTIO_ID_NITRO_SEC_MOD         33 /* virtio nitro secure module*/
-#define VIRTIO_ID_I2C_ADAPTER           34 /* virtio i2c adapter */
-#define VIRTIO_ID_WATCHDOG              35 /* virtio watchdog */
-#define VIRTIO_ID_CAN                   36 /* virtio can */
-#define VIRTIO_ID_DMABUF                37 /* virtio dmabuf */
-#define VIRTIO_ID_PARAM_SERV            38 /* virtio parameter server */
-#define VIRTIO_ID_AUDIO_POLICY          39 /* virtio audio policy */
-#define VIRTIO_ID_BT                    40 /* virtio bluetooth */
-#define VIRTIO_ID_GPIO                  41 /* virtio gpio */
-
+#define VIRTIO_ID_NET                   1   // virtio net
+#define VIRTIO_ID_BLOCK                 2   // virtio block
+#define VIRTIO_ID_CONSOLE               3   // virtio console
+#define VIRTIO_ID_RNG                   4   // virtio rng
+#define VIRTIO_ID_BALLOON               5   // virtio balloon
+#define VIRTIO_ID_IOMEM                 6   // virtio ioMemory
+#define VIRTIO_ID_RPMSG                 7   // virtio remote processor messaging
+#define VIRTIO_ID_SCSI                  8   // virtio scsi
+#define VIRTIO_ID_9P                    9   // 9p virtio console
+#define VIRTIO_ID_MAC80211_WLAN         10  // virtio WLAN MAC
+#define VIRTIO_ID_RPROC_SERIAL          11  // virtio remoteproc serial link
+#define VIRTIO_ID_CAIF                  12  // virtio caif
+#define VIRTIO_ID_MEMORY_BALLOON        13  // virtio memory balloon
+#define VIRTIO_ID_GPU                   16  // virtio GPU
+#define VIRTIO_ID_CLOCK                 17  // virtio clock/timer
+#define VIRTIO_ID_INPUT                 18  // virtio input
+#define VIRTIO_ID_VSOCK                 19  // virtio vsock transport
+#define VIRTIO_ID_CRYPTO                20  // virtio crypto
+#define VIRTIO_ID_SIGNAL_DIST           21  // virtio signal distribution device
+#define VIRTIO_ID_PSTORE                22  // virtio pstore device
+#define VIRTIO_ID_IOMMU                 23  // virtio IOMMU
+#define VIRTIO_ID_MEM                   24  // virtio mem
+#define VIRTIO_ID_SOUND                 25  // virtio sound
+#define VIRTIO_ID_FS                    26  // virtio filesystem
+#define VIRTIO_ID_PMEM                  27  // virtio pmem
+#define VIRTIO_ID_RPMB                  28  // virtio rpmb
+#define VIRTIO_ID_MAC80211_HWSIM        29  // virtio mac80211-hwsim
+#define VIRTIO_ID_VIDEO_ENCODER         30  // virtio video encoder
+#define VIRTIO_ID_VIDEO_DECODER         31  // virtio video decoder
+#define VIRTIO_ID_SCMI                  32  // virtio SCMI
+#define VIRTIO_ID_NITRO_SEC_MOD         33  // virtio nitro secure module
+#define VIRTIO_ID_I2C_ADAPTER           34  // virtio i2c adapter
+#define VIRTIO_ID_WATCHDOG              35  // virtio watchdog
+#define VIRTIO_ID_CAN                   36  // virtio can
+#define VIRTIO_ID_DMABUF                37  // virtio dmabuf
+#define VIRTIO_ID_PARAM_SERV            38  // virtio parameter server
+#define VIRTIO_ID_AUDIO_POLICY          39  // virtio audio policy
+#define VIRTIO_ID_BT                    40  // virtio bluetooth
+#define VIRTIO_ID_GPIO                  41  // virtio gpio
 
 // INLINE FUNCTION DEFINITIONS
 //
@@ -298,17 +245,19 @@ static inline void virtio_featset_init(virtio_featset_t fts)
     uint_fast8_t i;
 
     for (i = 0; i < VIRTIO_FEATLEN; i++)
+    {
         fts[i] = 0;
+    }
 }
 
 static inline void virtio_featset_add(virtio_featset_t fts, uint_fast16_t k)
 {
-    fts[k/32] |= UINT32_C(1) << (k%32);
+    fts[k / 32] |= UINT32_C(1) << (k % 32);
 }
 
 static inline int virtio_featset_test(virtio_featset_t fts, uint_fast16_t k)
 {
-    return ((fts[k/32] >> (k%32)) & 1);
+    return ((fts[k / 32] >> (k % 32)) & 1);
 }
 
 #endif // _VIRTIO_H_

@@ -125,22 +125,17 @@ static void set_running_thread(struct thread * thr);
 static const char * thread_state_name(enum thread_state state)
     __attribute__ ((unused));
 
-// void thread_reclaim(int tid)
-//
 // Reclaims a thread's slot in thrtab and makes its parent the parent of its
 // children. Frees the struct thread of the thread.
 
 static void thread_reclaim(int tid);
 
-// struct thread * create_thread(const char * name)
-//
 // Creates and initializes a new thread structure. The new thread is not added
 // to any list and does not have a valid context (_thread_switch cannot be
 // called to switch to the new thread).
 
 static struct thread * create_thread(const char * name);
 
-// void r//unning_thread_suspend(void)
 // Suspends the currently running thread and resumes the next thread on the
 // ready-to-run list using _thread_swtch (in threasm.s). Must be called with
 // interrupts enabled. Returns when the current thread is next scheduled for
@@ -165,12 +160,10 @@ static void tlappend(struct thread_list * l0, struct thread_list * l1);
 
 static void idle_thread_func(void);
 
-// IMPORTED FUNCTION DECLARATIONS
-// defined in thrasm.s
+// IMPORTED FUNCTION DECLARATIONS defined in thrasm.s
 //
 
 extern struct thread * _thread_swtch(struct thread * thr);
-
 extern void _thread_startup(void);
 
 // INTERNAL GLOBAL VARIABLES
@@ -207,7 +200,7 @@ static struct thread idle_thread =
     .stack_anchor = (void*)_idle_stack_anchor,
     .stack_lowest = _idle_stack_lowest,
     .ctx.sp = _idle_stack_anchor,
-    .ctx.ra = (void *) &_thread_startup,
+    .ctx.ra = (void *)&_thread_startup,
     .ctx.s[8] = (uintptr_t) &idle_thread_func
 };
 
@@ -240,23 +233,16 @@ void thrmgr_init(void)
     thrmgr_initialized = 1;
 }
 
-// int thread_spawn (const char * name, void (*entry)(void), ...)
-//
 // creates and starts a new thread
 // sets the new threads context return address to _thread_startup
 // which will set the functions entry and exit point
 // sets up the stack pointer
 // passes thread function arguments to save registers which are set in _thread_startup
-//
-// args: const char * name [the name of the thread]
-//       void (*entry)(void) thread entry point
-//       _args_ [arguments passed to the thread]
-// return: int [returns the TID of the spawned thread or a negative value on error]
 
-int thread_spawn (
+int thread_spawn(
     const char * name,
     void (*entry)(void),
-    ...) // parameters to the thread function
+    ...) // arguments
 {
     struct thread * child;
     va_list ap;
@@ -288,8 +274,12 @@ int thread_spawn (
     child->ctx.sp = (void*)child->stack_anchor;
 
     va_start(ap, entry);
+
     for (i = 0; i < 8; i++)
+    {
         child->ctx.s[i] = va_arg(ap, uint64_t);
+    }
+
     va_end(ap);
 
     child->ctx.s[8] = (uintptr_t)entry;
@@ -297,14 +287,9 @@ int thread_spawn (
     return child->id;
 }
 
-// void thread_exit(void)
-//
 // this function terminates the current running thread
 // check if the current thread is main in which case halt the entire program
 // otherwise signal the parent that the thread is exiting and yield to another thread
-//
-// args: void
-// return: void
 
 void thread_exit(void)
 {
@@ -349,48 +334,50 @@ void thread_yield(void)
     running_thread_suspend();
 }
 
-// int thread_join(int tid)
-//
 // this function waits for a child thread to exit
 // if the tid is 0 (main_thread) wait for any thread to exit
 // otherwise wait for the identified thread to exit
-//
-// args: int tid
-// return int [id of the child that exited]
 
 int thread_join(int tid)
 {
+    struct thread * child_thread;
     int child_tid;
 
-    // find active child of current thread
-
-    for (child_tid = 1; child_tid < NTHR - 1; child_tid++)
+    if (tid < 0 || tid > NTHR - 1)
     {
-        if (thrtab[child_tid] != NULL &&
-            thrtab[child_tid]->parent == TP)
-        {
-            break;
-        }
+        return -EINVAL;
     }
 
-    if ((child_tid >= NTHR - 1 && tid == 0) ||
-        (thrtab[tid] == NULL && tid != 0) ||
-        (thrtab[tid]->parent != TP && tid != 0))
+    if (tid == 0)
+    {
+        // find active child of current thread to wait on
+        // tid 0 and NTHR are main and idle threads
+        for (child_tid = 1; child_tid < NTHR - 1; child_tid++)
+        {
+            child_thread = thrtab[child_tid];
+
+            if (child_thread != NULL && child_thread->parent == TP)
+            {
+                break;
+            }
+        }
+    }
+    else
+    {
+        child_tid = tid;
+        child_thread = thrtab[tid];
+    }
+
+    if (child_thread == NULL || child_thread->parent != TP)
     {
         return -ECHILD;
     }
 
-    if(tid != 0)
-    {
-        child_tid = tid;
-    }
+ 	condition_init(&child_thread->parent->child_exit, child_thread->name);
 
- 	condition_init(&thrtab[child_tid]->parent->child_exit,
-		thrtab[child_tid]->name);
-
-	while (thrtab[child_tid]->state != THREAD_EXITED)
+	while (child_thread->state != THREAD_EXITED)
     {
-		kprintf("waiting on child to exit\n");
+		debug("waiting on child to exit\n");
 		condition_wait(&thrtab[child_tid]->parent->child_exit);
 	}
 
@@ -442,16 +429,11 @@ void condition_wait(struct condition * cond)
     running_thread_suspend();
 }
 
-// void condition_broadcast(struct condition (cond)
-//
 // this function wakes up threads waiting on the condition variable
 // this function may be called from an ISR
 // calling condition broadcast does not cause a context switch from the currently running thread
 // waiting threads are added to the ready-to-run list in the order they were added to
 // the wait queue
-//
-// args: struct condition * cond
-// return: void
 
 void condition_broadcast(struct condition * cond)
 {
@@ -502,7 +484,6 @@ void lock_acquire(struct lock * lock)
     {
         lock->cnt++;
         debug("thread %s already owns lock", TP->name);
-		debug("lock pointer=%p", lock);
         return;
     }
 
@@ -629,7 +610,8 @@ static void set_running_thread(struct thread * thr)
 
 const char * thread_state_name(enum thread_state state)
 {
-    static const char * const names[] = {
+    static const char * const names[] =
+    {
         [THREAD_UNINITIALIZED] = "UNINITIALIZED",
         [THREAD_WAITING] = "WAITING",
         [THREAD_RUNNING] = "RUNNING",
@@ -701,8 +683,7 @@ struct thread * create_thread(const char * name)
     thr = kcalloc(1, sizeof(struct thread));
 
     stack_page = alloc_phys_page();
-    memset(stack_page, 0, PAGE_SIZE);
-    //stack_page = kmalloc(STACK_SIZE);
+    memset(stack_page, 0, STACK_SIZE);
     anchor = stack_page + STACK_SIZE;
     anchor -= 1; // anchor is at base of stack
     thr->stack_lowest = stack_page;
@@ -719,18 +700,14 @@ struct thread * create_thread(const char * name)
     return thr;
 }
 
-// void running_thread_suspend(void)
-//
-// suspends the currently running thread and resumes the next thread on the ready-to-run list
-// using thread swtch
+// suspends the currently running thread and resumes the next thread on the
+// ready-to-run list using thread swtch
 // implementation is a simple round-robin scheduler
 // must be called with interrupts enabled
 // returns when the current thread is next scheduled for execution
-// if the current thread is running it is marked THREAD READY and placed on the ready-to-run list
+// if the current thread is running it is marked THREAD READY and placed on
+// the ready-to-run list
 // if the thread is in the exited state free its stack
-//
-// args: void
-// return: void
 
 void running_thread_suspend(void)
 {

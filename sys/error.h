@@ -25,7 +25,6 @@
 #define ENODATABLKS  16
 #define ENOINODEBLKS 17
 
-
 extern const char * error_name(int code);
 
 #endif // _ERROR_H_

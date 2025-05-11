@@ -76,74 +76,109 @@
 #define VIRTIO_BLK_REQ_HEADER_SIZE 16
 #define VIRTIO_BLK_REQ_SECTOR_SIZE 512
 #define VIRTIO_BLK_REQ_FOOTER_SIZE 1
+#define VIRTIO_BLK_VIRTQ_LEN 3
 
  // INTERNAL TYPE DEFINITIONS
  //
 
+struct vioblk_virtq
+{
+    uint16_t last_seen; // last used ring buffer serviced
+
+    union
+    {
+        struct virtq_avail avail;
+        char _avail_filler[VIRTQ_AVAIL_SIZE(VIRTIO_BLK_VIRTQ_LEN)];
+    };
+
+    union
+    {
+        struct virtq_used used;
+        char _used_filler[VIRTQ_USED_SIZE(VIRTIO_BLK_VIRTQ_LEN)];
+    };
+
+    struct virtq_desc indirect_desc;
+    struct virtq_desc desc_table[VIRTIO_BLK_VIRTQ_LEN];
+};
+
+struct vioblk_config
+{
+    uint64_t capacity;
+    uint32_t size_max;
+    uint32_t seg_max;
+    struct
+    {
+        uint16_t cylinders;
+        uint8_t heads;
+        uint8_t sectors;
+    }
+    geometry;
+
+    uint32_t blk_size;
+    struct
+    {
+        uint8_t physical_block_exp;
+        uint8_t alignment_offset;
+        uint16_t min_io_size;
+        uint32_t opt_io_size;
+    }
+    topology;
+
+    uint8_t writeback;
+    char unused0;
+    uint16_t num_queues;
+    uint32_t max_discard_sectors;
+    uint32_t max_discard_seg;
+    uint32_t discard_sector_alignment;
+    uint32_t max_write_zeroes_sectors;
+    uint32_t max_write_zeroes_seg;
+    uint8_t write_zeroes_may_unmap;
+    char unused1[3];
+    uint32_t max_secure_erase_sectors;
+    uint32_t max_secure_erase_seg;
+    uint32_t secure_erase_sector_alignment;
+};
+
+struct vioblk_request
+{
+    uint32_t type;  // read, write, discard, etc...
+    uint32_t reserved;
+    uint64_t sector; // offset * block size where read or write is
+    char data[VIRTIO_BLK_REQ_SECTOR_SIZE];
+    uint8_t status;
+};
+
 struct vioblk_device
 {
     volatile struct virtio_mmio_regs * regs;
+    struct io io;
     int irqno;
     int instno;
-    struct io io;
 
-    struct
-    {
-        uint16_t last_used_idx;
+    struct vioblk_virtq virtq;
+    struct vioblk_config * conf;
 
-        union
-        {
-            struct virtq_avail avail;
-            char _avail_filler[VIRTQ_AVAIL_SIZE(1)];
-        };
-
-        union
-        {
-            volatile struct virtq_used used;
-            char _used_filler[VIRTQ_USED_SIZE(1)];
-        };
-
-        struct virtq_desc desc_table[3];
-        struct virtq_desc indirect_desc;
-
-    }
-    vq;
-
-    struct
-    {
-        uint32_t type;  // read, write, discard, etc...
-        uint32_t reserved;
-        uint64_t sector; // offset * 512 where read or write occured
-        char * buf;
-        char status;
-    }
-    req;
-
-    uint64_t capacity;
-    uint32_t blksz;
-
-    struct condition block_ready;
-    struct lock vlock;
+    struct condition ready;
+    struct lock lock;
 };
+
+// GLOBAL VARIABLE DECLARATIONS
+//
+
+// TODO: make per request buffers
+// I can do this by having some pre allocated requests then
+// cycling through them whenever something requests data
+static struct vioblk_request req;
 
 // INTERNAL FUNCTION DECLARATIONS
 //
 
 static int vioblk_open(struct io ** ioptr, void * aux);
 static void vioblk_close(struct io * io);
-
-static long vioblk_readat (
-    struct io * io,
-    unsigned long long pos,
-    void * buf,
-    long bufsz);
-
-static long vioblk_writeat (
-    struct io * io,
-    unsigned long long pos,
-    const void * buf,
-    long len);
-
+static long vioblk_readat(struct io * io, unsigned long long pos, void * buf,
+        long bufsz);
+static long vioblk_writeat(struct io * io, unsigned long long pos,
+        const void * buf, long len);
 static int vioblk_cntl(struct io * io, int cmd, void * arg);
 
 static void vioblk_isr(int srcno, void * aux);
@@ -170,13 +205,15 @@ static int request_block (
 void vioblk_attach(volatile struct virtio_mmio_regs * regs, int irqno)
 {
     struct vioblk_device * vioblk;
-    uint32_t blksz;
+    struct vioblk_config * conf;
+    uint32_t blk_size;
     int result;
 
     assert (regs->device_id == VIRTIO_ID_BLOCK);
-    debug("device id=%d", regs->device_id);
+    kprintf("device id=%d", regs->device_id);
 
     regs->status |= VIRTIO_STAT_DRIVER;
+
     virtio_featset_t enabled_features, wanted_features, needed_features;
 
     virtio_featset_init(needed_features);
@@ -185,43 +222,43 @@ void vioblk_attach(volatile struct virtio_mmio_regs * regs, int irqno)
     virtio_featset_init(wanted_features);
     virtio_featset_add(wanted_features, VIRTIO_BLK_F_BLK_SIZE);
     virtio_featset_add(wanted_features, VIRTIO_BLK_F_TOPOLOGY);
+
     result = virtio_negotiate_features(regs, enabled_features,
             wanted_features, needed_features);
 
     if (result != 0)
     {
-        kprintf("%p: FAILED virtio feature negotiation\n", regs);
+        kprintf("%p: failed virtio feature negotiation\n", regs);
         regs->status |= VIRTIO_STAT_FAILED;
         return;
     }
 
-    // if the device provides a block size, use it. otherwise, use 512
+    conf = (struct vioblk_config *)regs->config;
+
+    // check if the device provides a block size
+    // does not effect requests but will change read and write
     if (virtio_featset_test(enabled_features, VIRTIO_BLK_F_BLK_SIZE))
     {
-        blksz = regs->config.blk.blk_size;
+        blk_size = conf->blk_size;
     }
     else
     {
-        blksz = 512;
+        blk_size = 512;
     }
 
-    // blksz must be a power of two
-    assert (((blksz - 1) & blksz) == 0);
+    // block size must be a power of two
+    assert (((blk_size - 1) & blk_size) == 0);
 
     // initialize and attach vioblk device
 
     vioblk = kcalloc(1, sizeof(struct vioblk_device));
-    vioblk->req.buf = kmalloc(blksz);
-
     assert (vioblk != NULL);
-    assert (vioblk->req.buf != NULL);
 
     vioblk->regs = regs;
     vioblk->irqno = irqno;
-    vioblk->capacity = regs->config.blk.capacity;
-    vioblk->blksz = blksz;
-    condition_init(&vioblk->block_ready, "vioblk_block_ready");
-    lock_init(&vioblk->vlock);
+    vioblk->conf = conf;
+    condition_init(&vioblk->ready, "virtio block ready");
+    lock_init(&vioblk->lock);
 
     static const struct iointf vioblk_iointf =
     {
@@ -233,48 +270,31 @@ void vioblk_attach(volatile struct virtio_mmio_regs * regs, int irqno)
 
     ioinit0(&vioblk->io, &vioblk_iointf);
     vioblk->instno = register_device(VIOBLK_NAME, vioblk_open, vioblk);
-    debug("instance no=%d", vioblk->instno);
+
+    kprintf("instance no=%d\n", vioblk->instno);
+    kprintf("sectors=0x%x\n", vioblk->conf->capacity);
+    kprintf("block size=%d\n", vioblk->conf->blk_size);
+    kprintf("queue max=%u\n", regs->queue_num_max);
 
     // attach virtqueue
 
-    vioblk->regs->queue_sel = 0;
-    vioblk->regs->queue_num = 1;
+    vioblk->virtq.indirect_desc.addr = (uint64_t)&vioblk->virtq.desc_table[0];
+    vioblk->virtq.indirect_desc.len = VIRTQ_DESC_SIZE * VIRTIO_BLK_VIRTQ_LEN;
+    vioblk->virtq.indirect_desc.flags = VIRTQ_DESC_F_INDIRECT;
+    vioblk->virtq.indirect_desc.next = 0;
 
-    // indirect descriptor
-    vioblk->vq.indirect_desc.addr = (uint64_t)&vioblk->vq.desc_table;
-    vioblk->vq.indirect_desc.len = VIRTQ_DESC_SIZE * 3;
-    vioblk->vq.indirect_desc.flags = VIRTQ_DESC_F_INDIRECT;
-    vioblk->vq.indirect_desc.next = 0;
-
-    // header
-    vioblk->vq.desc_table[0].addr = (uint64_t)&vioblk->req;
-    vioblk->vq.desc_table[0].len = VIRTIO_BLK_REQ_HEADER_SIZE;
-    vioblk->vq.desc_table[0].flags = VIRTQ_DESC_F_NEXT;
-    vioblk->vq.desc_table[0].next = 1;
-
-    // sector
-    vioblk->vq.desc_table[1].addr = (uint64_t)vioblk->req.buf;
-    vioblk->vq.desc_table[1].len = blksz;
-    vioblk->vq.desc_table[1].flags = VIRTQ_DESC_F_NEXT;
-    vioblk->vq.desc_table[1].next = 2;
-
-    // footer
-    vioblk->vq.desc_table[2].addr = (uint64_t)&vioblk->req.status;
-    vioblk->vq.desc_table[2].len = VIRTIO_BLK_REQ_FOOTER_SIZE;
-    vioblk->vq.desc_table[2].flags = VIRTQ_DESC_F_WRITE;
-    vioblk->vq.desc_table[2].next = 0;
-
-    virtio_attach_virtq(regs, 0, 1, (uint64_t)&vioblk->vq.indirect_desc,
-            (uint64_t)&vioblk->vq.used, (uint64_t)&vioblk->vq.avail);
+    virtio_attach_virtq(regs, 0, 1, (uint64_t)&vioblk->virtq.indirect_desc,
+        (uint64_t)&vioblk->virtq.used, (uint64_t)&vioblk->virtq.avail);
     virtio_enable_virtq(regs, 0);
 
     if (regs->queue_ready != 1)
     {
-        kprintf("%p: FAILED queue %d not ready\n", regs, 0);
+        kprintf("%p: failed queue %d not ready\n", regs, 0);
         regs->status |= VIRTIO_STAT_FAILED;
         return;
     }
 
+    regs->interrupt_ack = regs->interrupt_status;
     regs->status |= VIRTIO_STAT_DRIVER_OK;
 }
 
@@ -282,7 +302,6 @@ int vioblk_open(struct io ** ioptr, void * aux)
 {
     struct vioblk_device * const vioblk = aux;
 
-    // register the VIOBLK interrupt handler
     enable_intr_source(vioblk->irqno, VIOBLK_INTR_PRIO, vioblk_isr, aux);
     *ioptr = ioaddref(&vioblk->io);
 
@@ -300,48 +319,46 @@ void vioblk_close(struct io * io)
     virtio_reset_virtq(vioblk->regs, 0);
 }
 
-long vioblk_readat (
-    struct io * io,
-    unsigned long long pos,
-    void * buf,
-    long bufsz)
+long vioblk_readat(struct io * io, unsigned long long  pos, void * buf,
+        long bufsz)
 {
     struct vioblk_device * const vioblk =
         (void*)io - offsetof(struct vioblk_device, io);
 
+    uint64_t capacity;
+    uint32_t blk_size;
     uint64_t sector;
     uint64_t read_bytes;
 
-    lock_acquire(&vioblk->vlock);
+    lock_acquire(&vioblk->lock);
     trace("%s(pos=%lld, bufsz=%ld)", __func__, pos, bufsz);
+
+    capacity = vioblk->conf->capacity;
+    blk_size = vioblk->conf->blk_size;
 
     if (bufsz < 0)
     {
         return -EINVAL;
     }
-    // read must be 512 byte aligned
-    else if(pos % vioblk->blksz != 0 ||
-            bufsz % vioblk->blksz != 0)
+    else if (pos % blk_size != 0 || bufsz % blk_size != 0)
     {
         return -EINVAL;
     }
 
-    sector = pos / vioblk->blksz;
+    sector = pos / blk_size;
     read_bytes = 0;
 
-    // read each block and copy to buf
     while (read_bytes < bufsz)
     {
         // make sure we are not trying to read more than hard-drive capacity
-        if (sector > vioblk->capacity)
+        if (sector > capacity)
         {
             return -EACCESS;
         }
 
         request_block(vioblk, VIRTIO_BLK_T_IN, sector, 0, 1);
-        memcpy(buf + read_bytes, vioblk->req.buf, vioblk->blksz);
-
-        read_bytes += vioblk->blksz;
+        memcpy(buf + read_bytes, req.data, blk_size);
+        read_bytes += blk_size;
 
         debug("sector=%lld", sector);
         debug("read_bytes=%lld", read_bytes);
@@ -350,52 +367,52 @@ long vioblk_readat (
     }
 
     __sync_synchronize();
-    lock_release(&vioblk->vlock);
+    lock_release(&vioblk->lock);
 
     return read_bytes;
 }
 
-long vioblk_writeat (
-    struct io * io,
-    unsigned long long pos,
-    const void * buf,
-    long len)
+long vioblk_writeat(struct io * io, unsigned long long pos, const void * buf,
+        long len)
 {
     struct vioblk_device * const vioblk =
         (void*)io - offsetof(struct vioblk_device, io);
 
+    uint64_t capacity;
+    uint32_t blk_size;
     uint64_t sector;
     uint64_t write_bytes;
 
-    lock_acquire(&vioblk->vlock);
+    lock_acquire(&vioblk->lock);
     trace("%s(pos=%lld, len=%ld)", __func__, pos, len);
+
+    capacity = vioblk->conf->capacity;
+    blk_size = vioblk->conf->blk_size;
 
     if (len < 0)
     {
         return -EINVAL;
     }
-    // write must be 512 byte aligned
-    else if (pos % vioblk->blksz != 0 ||
-             len % vioblk->blksz != 0)
+    else if (pos % blk_size != 0 ||
+             len % blk_size != 0)
     {
         return -EINVAL;
     }
 
-    sector = pos / vioblk->blksz;
+    sector = pos / blk_size;
     write_bytes = 0;
 
     while (write_bytes < len)
     {
         // make sure we are not trying to read more than hard-drive capacity
-        if (sector > vioblk->capacity)
+        if (sector > capacity)
         {
             return -EACCESS;
         }
 
-        memcpy(vioblk->req.buf, buf + write_bytes, vioblk->blksz);
+        memcpy(req.data, buf + write_bytes, blk_size);
         request_block(vioblk, VIRTIO_BLK_T_OUT, sector, 0, 1);
-
-        write_bytes += vioblk->blksz;
+        write_bytes += blk_size;
 
         debug("sector=%lld", sector);
         debug ("write_bytes=%lld", write_bytes);
@@ -404,7 +421,7 @@ long vioblk_writeat (
     }
 
     __sync_synchronize();
-    lock_release(&vioblk->vlock);
+    lock_release(&vioblk->lock);
 
     return write_bytes;
 }
@@ -420,10 +437,10 @@ int vioblk_cntl(struct io * io, int cmd, void * arg)
     switch (cmd)
     {
     case IOCTL_GETBLKSZ:
-        result = vioblk->blksz;
+        result = vioblk->conf->blk_size;
         break;
     case IOCTL_GETEND:
-        *szarg = vioblk->capacity * vioblk->blksz;
+        *szarg = vioblk->conf->capacity * vioblk->conf->blk_size;
         result = 0;
         break;
     default:
@@ -437,16 +454,19 @@ void vioblk_isr(int srcno, void * aux)
 {
     struct vioblk_device * vioblk = aux;
 
-    if (vioblk->regs->interrupt_status & VIRTQ_INTR_USED)
+    while (vioblk->virtq.last_seen != vioblk->virtq.used.idx)
     {
-        vioblk->vq.last_used_idx = vioblk->vq.used.idx;
-        vioblk->regs->interrupt_ack = VIRTQ_INTR_USED;
-
-        condition_broadcast(&vioblk->block_ready);
+        vioblk->virtq.last_seen++;
     }
 
+    vioblk->regs->interrupt_ack = vioblk->regs->interrupt_status;
     __sync_synchronize();
+    condition_broadcast(&vioblk->ready);
 }
+
+// chain 3 descriptors
+// TODO: Figure out why condition waiting breaks everything
+// also implementing multiple virtqueues and larger chains
 
 int request_block (
         struct vioblk_device * vioblk,
@@ -455,38 +475,74 @@ int request_block (
         uint32_t queue,
         uint32_t queue_max)
 {
+    uint32_t head, data, status;
     uint16_t avail_idx;
-    // int pie;
+    uint16_t write_flag;
+    // int pie
 
-    // specify which block to read from
-    vioblk->req.type = type;
-    vioblk->req.sector = sector;
-    vioblk->vq.desc_table[1].flags = VIRTQ_DESC_F_NEXT;
+    // specify read or write location
 
-    // if trying to read make page writeble
+    req.type = type;
+    req.sector = sector;
+
+    // setup header descriptor
+
+    head = 0;
+    vioblk->virtq.desc_table[head].addr = (uint64_t)&req;
+    vioblk->virtq.desc_table[head].len = VIRTIO_BLK_REQ_HEADER_SIZE;
+    vioblk->virtq.desc_table[head].flags = VIRTQ_DESC_F_NEXT;
+
+    // make the descriptor writeable if trying to read
     if (type == VIRTIO_BLK_T_IN)
     {
-        vioblk->vq.desc_table[1].flags |= VIRTQ_DESC_F_WRITE;
+        write_flag = VIRTQ_DESC_F_WRITE;
     }
+    else
+    {
+        write_flag = 0;
+    }
+
+    // setup data descriptor
+
+    data = 1;
+    vioblk->virtq.desc_table[data].addr = (uint64_t)req.data;
+    vioblk->virtq.desc_table[data].len = VIRTIO_BLK_REQ_SECTOR_SIZE;
+    vioblk->virtq.desc_table[data].flags = write_flag | VIRTQ_DESC_F_NEXT;
+
+    // setup status descriptor
+
+    status = 2;
+    vioblk->virtq.desc_table[status].addr = (uint64_t)&req.status;
+    vioblk->virtq.desc_table[status].len = VIRTIO_BLK_REQ_FOOTER_SIZE;
+    vioblk->virtq.desc_table[status].flags = VIRTQ_DESC_F_WRITE;
+
+    // link descriptors in a chain
+
+    vioblk->virtq.desc_table[head].next = data;
+    vioblk->virtq.desc_table[data].next = status;
+    vioblk->virtq.desc_table[status].next = 0;
 
     // put descriptors into available ring buffer
-    avail_idx = vioblk->vq.avail.idx % queue_max;
-    vioblk->vq.avail.ring[avail_idx] = 0; // head descriptor
-    vioblk->vq.avail.idx++;
+
+    avail_idx = vioblk->virtq.avail.idx % queue_max;
+    vioblk->virtq.avail.ring[avail_idx] = head;
+    __sync_synchronize();
+    vioblk->virtq.avail.idx++;
+    __sync_synchronize();
     virtio_notify_avail(vioblk->regs, queue);
 
-    // wait until data is ready to read
+    // wait until data is ready to read or has written
+
     // pie = disable_interrupts();
-    while (vioblk->vq.avail.idx != vioblk->vq.used.idx)
+    while (vioblk->virtq.avail.idx != vioblk->virtq.used.idx)
     {
-        //condition_wait(&vioblk->block_ready);
+        //condition_wait(&vioblk->ready);
         continue;
     }
-
     // restore_interrupts(pie);
     __sync_synchronize();
 
-    if (vioblk->req.status != VIRTIO_BLK_S_OK)
+    if (req.status != VIRTIO_BLK_S_OK)
     {
         return -EIO;
     }

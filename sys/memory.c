@@ -175,9 +175,9 @@ void memory_init(void)
 
     assert (RAM_START == _kimg_start);
 
-    kprintf("           RAM: [%p,%p): %zu MB\n",
+    kprintf("RAM           : [%p,%p): %zu MB\n",
         RAM_START, RAM_END, RAM_SIZE / 1024 / 1024);
-    kprintf("  Kernel image: [%p,%p)\n", _kimg_start, _kimg_end);
+    kprintf("Kernel image  : [%p,%p)\n", _kimg_start, _kimg_end);
 
     // Kernel must fit inside 2MB megapage (one level 1 PTE)
 
