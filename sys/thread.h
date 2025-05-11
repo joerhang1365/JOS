@@ -38,28 +38,19 @@ extern void thrmgr_init(void);
 
 extern int running_thread(void);
 
-// int thread_spawn(const char * name, void (*start)(void *), ...)
-//
 // Creates and starts a new thread. Argument _name_ is the name of the thread
 // (optional, may be NULL), _start_ is the thread entry point, and _arg_ is an
 // argument passed to the thread. The thread is added to the runnable thread
 // list. If _start_ returns, this is equivalent to calling thread_exit from
 // _start_. Returns the TID of the spawned thread or a negative value on error.
 
-extern int thread_spawn (
-    const char * name,
-    void (*entry)(void),
-    ...);
+extern int thread_spawn(const char * name, void (*entry)(void), ...);
 
-// void thread_yield(void)
-//
 // Yields the CPU to another thread and returns when the current thread is next
 // scheduled to run.
 
 extern void thread_yield(void);
 
-// int thread_join(int tid)
-//
 // Waits for a child of the current thread to exit. if _tid_ is not zero, the
 // function waits for the identified child of the running thread to exit.
 // Otherwise, the function waits for any child of the running thread. The
@@ -71,8 +62,6 @@ extern void thread_yield(void);
 
 extern int thread_join(int tid);
 
-// void thread_exit(void)
-//
 // Terminates the currently running thread. This function does not return.
 
 extern void __attribute__ ((noreturn)) thread_exit(void);
@@ -85,8 +74,6 @@ extern const char * thread_name(int tid);
 
 extern const char * running_thread_name(void);
 
-// void condition_init(struct condition * cond, const char * name)
-//
 // Initializes a condition variable. The _cond_ argument must be a pointer to a
 // condition struct to initialize. The _name_ argument is the name of the
 // condition variable, which may be NULL. (Names are purely a debugging
@@ -94,7 +81,6 @@ extern const char * running_thread_name(void);
 
 extern void condition_init(struct condition * cond, const char * name);
 
-// void condition_wait(struct condition * cond)
 // Suspends the current thread until a condition is signalled by another thread
 // or interrupt service routine. The condition_wait function may be called with
 // interrupts disabled. It will enable interrupts while the thread is suspended
@@ -104,8 +90,6 @@ extern void condition_init(struct condition * cond, const char * name);
 // disabled to avoid a race condition.
 
 extern void condition_wait(struct condition * cond);
-
-// void condition_broadcast(struct condition * cond)
 
 // Wakes up all threads waiting on a condition. This function may be called from
 // an ISR. Calling condition_broadcast() does not cause a context switch from

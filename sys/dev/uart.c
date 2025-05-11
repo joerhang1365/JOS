@@ -47,8 +47,8 @@ struct uart_regs
 {
     union
     {
-        char rbr; // DLAB=0 read
-        char thr; // DLAB=0 write
+        char rbr;    // DLAB=0 read
+        char thr;    // DLAB=0 write
         uint8_t dll; // DLAB=1
     };
 
@@ -88,12 +88,9 @@ struct ringbuf
 struct uart_device
 {
     volatile struct uart_regs * regs;
+    struct io io;
     int irqno;
     int instno;
-
-    struct io io;
-
-    unsigned long rxovrcnt; // number of times OE was set
 
     struct condition rxbuf_not_empty;
     struct condition txbuf_not_full;
@@ -182,10 +179,13 @@ int uart_open(struct io ** ioptr, void * aux)
     uart->regs->rbr;
 
     // enable the interrupt source
-    enable_intr_source(uart->irqno,UART_INTR_PRIO, uart_isr,aux);
+    enable_intr_source(uart->irqno, UART_INTR_PRIO, uart_isr, aux);
 
-    *ioptr = ioaddref(&uart->io); // get the io pointer to device
-    uart->regs->ier = IER_DRIE; // enable the interupt for Data Ready
+    // get the io pointer to device
+    *ioptr = ioaddref(&uart->io);
+
+    // enable the interrupt for data ready
+    uart->regs->ier = IER_DRIE;
 
     return 0;
 }
@@ -229,7 +229,6 @@ long uart_read(struct io * io, void * buf, long bufsz)
     // copy at most bufsz number of bytes from recieve ring buffer to buf
 
     pie = disable_interrupts();
-
     while (rbuf_empty(&uart->rxbuf))
     {
         condition_wait(&uart->rxbuf_not_empty);
@@ -285,7 +284,6 @@ long uart_write(struct io * io, const void * buf, long len)
     while (write_bytes < len)
     {
         pie = disable_interrupts();
-
         while (rbuf_full(&uart->txbuf))
         {
             condition_wait(&uart->txbuf_not_full);

@@ -31,9 +31,8 @@
 
 struct rtc_regs
 {
-    uint32_t low_time; //combines to 64 bit time.
+    uint32_t low_time; // too fat need two reads
     uint32_t high_time;
-
 };
 
 struct rtc_device
@@ -130,7 +129,6 @@ uint64_t read_real_time(volatile struct rtc_regs * regs)
     uint32_t low = regs->low_time;
     uint32_t high = regs->high_time;
 
-    // shift the high 32 bits to the left and
-    // add the low 32 bits to create 64 bits
+    // combine both reads to get 64 bit time
     return ((uint64_t) high << 32) + low;
 }
