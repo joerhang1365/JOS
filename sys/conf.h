@@ -9,7 +9,7 @@
 
 #ifndef RAM_SIZE
 #ifndef RAM_SIZE_MB
-#define RAM_SIZE ((size_t)8*1024*1024)
+#define RAM_SIZE ((size_t)32*1024*1024)
 #else
 #define RAM_SIZE ((size_t)RAM_SIZE_MB*1024*1024)
 #endif

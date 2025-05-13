@@ -24,7 +24,6 @@
 #include "error.h"
 #include <stdint.h>
 
-
 // COMPILE-TIME CONSTANT DEFINITIONS
 //
 

@@ -113,15 +113,15 @@ kernel.elf: $(OBJS) main.o blob.o
 	$(LD) $(LDFLAGS) -T kernel.ld -o $@ $^
 
 run: kernel.elf mkfs_ktfs
-	$(QEMU) $(QEMUOPTS) -m 8M -kernel $<
+	$(QEMU) $(QEMUOPTS) -m 32M -kernel $<
 
 debug: kernel.elf
-	$(QEMU) $(QEMUOPTS) -m 8M -kernel $< -S -s
+	$(QEMU) $(QEMUOPTS) -m 32M -kernel $< -S -s
 
 usr:
 	$(MAKE) -C ../usr all
 
-SIZE=16M
+SIZE=32M
 INODES=32
 
 # filesystem
