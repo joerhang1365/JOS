@@ -9,16 +9,16 @@
 #define SHELL_BUILTIN 2
 
 int shell_null(char ** args);
+int shell_echo(char ** args);
 int shell_cd(char ** args);
-int shell_ls(char ** args);
 int shell_help(char ** args);
 int shell_exit(char ** args);
 
 char * builtin_str[] =
 {
-    "\0",
-    "cd",
-    "ls",
+    "\0",   // do nothing
+    "echo", // write back to console
+    "cd",   // change directory
     "help",
     "exit"
 };
@@ -26,8 +26,8 @@ char * builtin_str[] =
 int (* builtin_func[]) (char **) =
 {
     &shell_null,
+    &shell_echo,
     &shell_cd,
-    &shell_ls,
     &shell_help,
     &shell_exit
 };
@@ -40,6 +40,8 @@ int main(void) {
     int child_tid;
     int i;
     int result;
+
+    getsn(cmdbuf, sizeof(cmdbuf));
 
     printf("  #  #   ##\n");
     printf("  # # # #  \n");
@@ -92,7 +94,7 @@ int main(void) {
 
         if (fd < 0)
         {
-            printf("%s: ERROR %d\n", args[0], fd);
+            printf("ERROR: %s invalid command %d\n", args[0], fd);
             continue;
         }
 
@@ -125,15 +127,25 @@ int shell_null(char ** args)
     return SHELL_BUILTIN;
 }
 
-int shell_cd(char ** args)
+int shell_echo(char ** args)
 {
-    printf("cd time\n");
+    int i = 1;
+
+    while (args[i] != NULL)
+    {
+        printf("%s", args[i]);
+        putc(' ');
+        i++;
+    }
+
+    putc('\n');
+
     return SHELL_BUILTIN;
 }
 
-int shell_ls(char ** args)
+int shell_cd(char ** args)
 {
-    printf("ls time\n");
+    printf("cd time\n");
     return SHELL_BUILTIN;
 }
 
@@ -143,10 +155,11 @@ int shell_help(char ** args)
 
     printf("Welcome to JOS\n");
     printf("You are on your own buddy\n");
+    printf("list of commands:\n");
 
     int builtin_count = sizeof(builtin_str) / sizeof(char *);
 
-    for (i = 0; i < builtin_count; i++)
+    for (i = 1; i < builtin_count; i++)
     {
         printf("  %s\n", builtin_str[i]);
     }

@@ -117,7 +117,7 @@ void viorng_attach(volatile struct virtio_mmio_regs * regs, int irqno)
 
     if (result != 0)
     {
-        kprintf("%p: FAILED virtio feature negotiation\n", regs);
+        kprintf("viorng: failed feature negotiation\n");
         regs->status |= VIRTIO_STAT_FAILED;
         return;
     }
@@ -156,7 +156,7 @@ void viorng_attach(volatile struct virtio_mmio_regs * regs, int irqno)
 
     if (regs->queue_ready != 1)
     {
-        kprintf("%p: FAILED queue %d not ready\n", regs, 0);
+        kprintf("viorng: queue %d failed not ready\n", 0);
         regs->status |= VIRTIO_STAT_FAILED;
         return;
     }

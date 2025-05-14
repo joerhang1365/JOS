@@ -48,14 +48,8 @@ void timer_init(void)
     //set_stcmp(rdtime() + 1000 * (TIMER_FREQ / 1000 / 1000));
 }
 
-// void alarm_init(struct alarm * al, const char * name)
-//
 // this function initializes an alarm updating its twake
 // the _name_ argument is optional
-//
-// args: struct alarm * al
-//       const char * name
-// return: void
 
 void alarm_init(struct alarm * al, const char * name)
 {
@@ -73,15 +67,9 @@ void alarm_init(struct alarm * al, const char * name)
     al->twake = now;
 }
 
-// void alarm_sleep(struct alarm * al, unsigned long long tcnt)
-//
 // the function puts the current thread to sleep for some number of ticks
 // the _tcnt_ argument specifies the number of timer ticks relative to the most recent
 // alarm event, either init, wake-up, or reset
-//
-// args: struct alarm * al
-//       unsigned long long tcnt
-// return: void
 
 void alarm_sleep(struct alarm * al, unsigned long long tcnt)
 {
@@ -90,7 +78,7 @@ void alarm_sleep(struct alarm * al, unsigned long long tcnt)
 
     trace("%s(now=%lld)",__func__,now);
 
-    // if the tcnt is so large it wraps around, set it to UINT64_MAX
+    // if the tick count is so large it wraps around, set it to UINT64_MAX
     if (UINT64_MAX - al->twake < tcnt)
     {
         al->twake = UINT64_MAX;
@@ -121,13 +109,8 @@ void alarm_sleep(struct alarm * al, unsigned long long tcnt)
     condition_wait(&al->cond); // put current thread to sleep
 }
 
-// void alarm_reset(struct alarm * al)
-//
 // resets the alarm so that the next sleep increment is relative to the time
 // alarm_reset is called
-//
-// args: struct alarm * al
-// return: void
 
 void alarm_reset(struct alarm * al)
 {
@@ -167,8 +150,6 @@ void sleep_us(unsigned long us)
     alarm_sleep_us(&al, us);
 }
 
-// void handle_timer_interrupt(void)
-//
 // this function handles the timer interrrupt service routine
 // wakes up all threads that are past their alarms by placing them onto the ready_list
 // if there are no alarms on the sleep_list disable timer interrupts
@@ -178,9 +159,6 @@ void sleep_us(unsigned long us)
 // newly implemented preemptive scheduling so if no alarms are on the list
 // automatically set a 10ms timer forcing the thread to enter an interrupt
 // and yeild to the thread scheduler
-//
-// args: void
-// return: void
 
 void handle_timer_interrupt(void)
 {
@@ -228,14 +206,9 @@ void handle_timer_interrupt(void)
     restore_interrupts(pie);
 }
 
-// static void alarm_insert_sorted(struct alarm * al)
-//
 // helper function for alarm_sleep
 // inserts an alarm into the sleep_list in order from earliest time
 // to lastest time
-//
-// args: struct alarm * al
-// return: void
 
 static void alarm_insert_sorted(struct alarm * al)
 {

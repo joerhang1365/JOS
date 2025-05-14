@@ -1,5 +1,5 @@
 // string.h - String and memory functions
-// 
+//
 // Copyright (c) 2024-2025 University of Illinois
 // SPDX-License-identifier: NCSA
 //

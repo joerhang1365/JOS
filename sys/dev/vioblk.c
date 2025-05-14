@@ -209,7 +209,7 @@ void vioblk_attach(volatile struct virtio_mmio_regs * regs, int irqno)
     int result;
 
     assert (regs->device_id == VIRTIO_ID_BLOCK);
-    kprintf("device id=%d", regs->device_id);
+    kprintf("device id=%d\n", regs->device_id);
 
     regs->status |= VIRTIO_STAT_DRIVER;
 
@@ -227,7 +227,7 @@ void vioblk_attach(volatile struct virtio_mmio_regs * regs, int irqno)
 
     if (result != 0)
     {
-        kprintf("%p: failed virtio feature negotiation\n", regs);
+        kprintf("vioblk: failed virtio feature negotiation\n");
         regs->status |= VIRTIO_STAT_FAILED;
         return;
     }
@@ -266,7 +266,7 @@ void vioblk_attach(volatile struct virtio_mmio_regs * regs, int irqno)
     ioinit0(&vioblk->io, &vioblk_iointf);
     vioblk->instno = register_device(VIOBLK_NAME, vioblk_open, vioblk);
 
-    kprintf("instance no=%d\n", vioblk->instno);
+    kprintf("instance=%d\n", vioblk->instno);
     kprintf("sectors=0x%x\n", vioblk->conf->capacity);
     kprintf("block size=%d\n", vioblk->conf->blk_size);
     kprintf("queue max=%u\n", regs->queue_num_max);
@@ -284,7 +284,7 @@ void vioblk_attach(volatile struct virtio_mmio_regs * regs, int irqno)
 
     if (regs->queue_ready != 1)
     {
-        kprintf("%p: failed queue %d not ready\n", regs, 0);
+        kprintf("vioblk: queue %d failed not ready\n", 0);
         regs->status |= VIRTIO_STAT_FAILED;
         return;
     }

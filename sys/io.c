@@ -620,6 +620,8 @@ long seekio_writeat (
 
 void create_pipe(struct io ** wioptr, struct io ** rioptr)
 {
+    struct pipe * pipe;
+
     static const struct iointf pipe_iointf_w =
     {
         .write = &pipe_write,
@@ -631,8 +633,6 @@ void create_pipe(struct io ** wioptr, struct io ** rioptr)
         .read = &pipe_read,
         .close = &pipe_close_rio
     };
-
-    struct pipe * pipe;
 
     pipe = kcalloc(1, sizeof(struct pipe));
     pipe->buf = alloc_phys_page();
@@ -648,7 +648,6 @@ void pipe_rbuf_putc(struct pipe * pipe, uint8_t c)
 
     tpos = pipe->tpos;
     pipe->buf[tpos % PAGE_SIZE] = c;
-    //memcpy(pipe->buf + (tpos % PAGE_SIZE), &c, 1);
     asm volatile ("" ::: "memory");
     pipe->tpos = tpos + 1;
 }
@@ -660,7 +659,6 @@ uint8_t pipe_rbuf_getc(struct pipe * pipe)
 
     hpos = pipe->hpos;
     c = pipe->buf[hpos % PAGE_SIZE];
-    //memcpy(&c, pipe->buf + (hpos % PAGE_SIZE), 1);
     asm volatile ("" ::: "memory");
     pipe->hpos = hpos + 1;
     return c;
@@ -816,6 +814,5 @@ void pipe_close_rio(struct io * rio)
     {
         free_phys_page(my_pipe->buf);
         kfree(my_pipe);
-        // condition broadcast ?
     }
 }

@@ -18,6 +18,8 @@
 
 void virtio_attach(void * mmio_base, int irqno)
 {
+    trace("%s(mmio_base=%p, irqno=%d)", __func__, mmio_base, irqno);
+
     volatile struct virtio_mmio_regs * const regs = mmio_base;
 
     extern void viocons_attach (
@@ -37,14 +39,14 @@ void virtio_attach(void * mmio_base, int irqno)
 
     if (regs->magic_value != VIRTIO_MAGIC)
     {
-        kprintf("%p: No virtio magic number found\n", mmio_base);
+        kprintf("virtio: no magic number found");
         return;
     }
 
     if (regs->version != 2)
     {
-        kprintf("%p: Unexpected virtio version (found %u, expected %u)\n",
-            mmio_base, (unsigned int)regs->version, 2);
+        kprintf("virtio: unexpected virtio version (found %u, expected %u)\n",
+            (unsigned int)regs->version, 2);
         return;
     }
 
@@ -59,27 +61,27 @@ void virtio_attach(void * mmio_base, int irqno)
     switch (regs->device_id)
     {
     case VIRTIO_ID_CONSOLE:
-        kprintf("%p: found virtio console device\n", regs);
+        kprintf("virtio: found console device at %p\n", mmio_base);
         viocons_attach(regs, irqno);
         break;
     case VIRTIO_ID_BLOCK:
-        kprintf("%p: found virtio block device\n", regs);
+        kprintf("virtio: found block device at %p\n", mmio_base);
         vioblk_attach(regs, irqno);
         break;
     case VIRTIO_ID_RNG:
-        kprintf("%p: found virtio rng device\n", regs);
+        kprintf("virtio: found rng device at %p\n", mmio_base);
         viorng_attach(regs, irqno);
         break;
     case VIRTIO_ID_GPU:
-        kprintf("%p: found virtio gpu device\n", regs);
+        kprintf("virtio: found gpu device at %p\n", mmio_base);
         viogpu_attach(regs, irqno);
         break;
     case VIRTIO_ID_INPUT:
-        kprintf("%p: found virtio input device\n", regs);
+        kprintf("virtio: found input device at %p\n", mmio_base);
         viohi_attach(regs, irqno);
         break;
     default:
-        kprintf("%p: Unknown virtio device type %u ignored\n",
+        kprintf("virtio: unknown device at %p type %u ignored\n",
             mmio_base, (unsigned int) regs->device_id);
         return;
     }

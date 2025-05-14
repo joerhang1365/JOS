@@ -46,14 +46,28 @@ BLOB_OBJCOPY_FLAGS = \
 	--add-section .rodata.blob=blob.raw \
 	--set-section-flags .rodata.blob=alloc,contents,load,readonly
 
+# CONSTANTS
+#
+
+RAM=32M
+RAM_SIZE=32*1024*1024
+RAM_SIZE_MB=32
+
+FS_SIZE=32M
+FS_INODES=32 # multiple of 16
+
 CFLAGS = -Wall -Werror=implicit-function-declaration
 CFLAGS += -fno-omit-frame-pointer -ggdb3 -gdwarf-2
 CFLAGS += -mcmodel=medany -fno-pie -no-pie -march=rv64imazicsr -mabi=lp64
 CFLAGS += -fno-common -nostdlib -mno-relax -ffreestanding
 CFLAGS += -fno-asynchronous-unwind-tables -mno-riscv-attribute
 CFLAGS += -I.
+CFLAGS += -DRAM_SIZE=$(RAM_SIZE) -DRAM_SIZE_MB=$(RAM_SIZE_MB)
 
-#CFLAGS += -DDEBUG #-DTRACE # Everything!
+# enable debug statements and traces
+#
+
+#CFLAGS += -DDEBUG -DTRACE # Everything!
 #CFLAGS += -DMEMORY_DEBUG -DMEMORY_TRACE
 #CFLAGS += -DHEAP_DEBUG -DHEAP_TRACE
 #CFLAGS += -DEZFS_DEBUG -DEZFS_TRACE
@@ -107,26 +121,22 @@ QEMUOPTS += -monitor pty
 .PHONY: mkfs_ktfs
 .PHONY: clean
 
-all: kernel.elf mkfs_ktfs
+all: kernel.elf usr mkfs_ktfs
+
+run: kernel.elf
+	$(QEMU) $(QEMUOPTS) -m $(RAM) -kernel $<
 
 kernel.elf: $(OBJS) main.o blob.o
 	$(LD) $(LDFLAGS) -T kernel.ld -o $@ $^
 
-run: kernel.elf mkfs_ktfs
-	$(QEMU) $(QEMUOPTS) -m 32M -kernel $<
-
 debug: kernel.elf
-	$(QEMU) $(QEMUOPTS) -m 32M -kernel $< -S -s
+	$(QEMU) $(QEMUOPTS) -m $(RAM) -kernel $< -S -s
 
 usr:
 	$(MAKE) -C ../usr all
 
-SIZE=32M
-INODES=32
-
-# filesystem
 mkfs_ktfs:
-	./../util/fs/mkfs_ktfs ktfs.raw $(SIZE) $(INODES) ../usr/bin/*
+	./../util/fs/mkfs_ktfs ktfs.raw $(FS_SIZE) $(FS_INODES) ../usr/bin/*
 
 blob.o:
 	echo .end | $(AS) $(ASFLAGS) -o blob.o
